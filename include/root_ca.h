@@ -1,0 +1,15 @@
+#include "WiFiClientSecure.h"
+
+const char *root_ca =
+
+/* DigiCert Global Root G2 */
+"-----BEGIN CERTIFICATE-----\n"
+"MIIDjjCCAnagAwIBAgIQAzrx5qcRqaC7KGSxHQn65TANBgkqhkiG9w0BAQsFADBh\n"
+"MQswCQYDVQQGEwJVUzEVMBMGA1UEChMMRGlnaUNlcnQgSW5jMRkwFwYDVQQLExB3\n"
+"-----END CERTIFICATE-----\n"
+
+/* RapidSSL TLS RSA CA G1 */
+"-----BEGIN CERTIFICATE-----\n"
+"MIIFMDCCBBigAwIBAgISAxU61uAfFh+fssXnVEwogOvdMA0GCSqGSIb3DQEBCwUA\n"
+"MEoxCzAJBgNVBAYTAlVTMRcwFQYDVQQKDA5HZW9UcnVzdCwgSW5jLjEeMBwGA1UE\n"
+"-----END CERTIFICATE-----\n";
