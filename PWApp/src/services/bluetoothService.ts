@@ -144,7 +144,7 @@ export const waitForWiFiConnection = async (
     }, timeout);
 
     const handleStatusChange = (event: Event) => {
-      const target = event.target as BluetoothRemoteGATTCharacteristic;
+      const target = event.target as unknown as BluetoothRemoteGATTCharacteristic;
       const decoder = new TextDecoder();
       const data: ESP32Status = JSON.parse(decoder.decode(target.value!));
 
