@@ -51,7 +51,7 @@ export const WiFiQRScanner = ({ onScanned, onManualEntry }: WiFiQRScannerProps) 
             });
           }
         },
-        (errorMessage) => {
+        () => {
           // Ignore scan errors (normal during scanning)
         }
       );

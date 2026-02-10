@@ -1,4 +1,4 @@
-import { MDNS_HOSTNAME, DEFAULT_PORT, LOCAL_VALIDATION_TIMEOUT } from '../utils/constants';
+import { LOCAL_VALIDATION_TIMEOUT } from '../utils/constants';
 import type { PotatoConfig } from '../types';
 
 interface ValidationResult {

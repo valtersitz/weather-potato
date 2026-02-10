@@ -9,7 +9,6 @@ interface AndroidWiFiShareGuideProps {
 }
 
 export const AndroidWiFiShareGuide = ({ onContinue, onSkip }: AndroidWiFiShareGuideProps) => {
-  const { t } = useI18n();
   const isInstalled = isShareTargetSupported();
 
   return (

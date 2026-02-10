@@ -29,7 +29,7 @@ export const useI18n = () => {
     localStorage.setItem(STORAGE_LANGUAGE, lang);
   };
 
-  const t = (key: string): string => {
+  const t = (key: string): any => {
     const keys = key.split('.');
     let value: any = translations[language];
 
