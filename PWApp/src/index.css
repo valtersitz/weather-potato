@@ -1,0 +1,166 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-gray-50 text-gray-800 antialiased;
+    font-family: 'Poppins', -apple-system, BlinkMacSystemFont, sans-serif;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: 'Fredoka', 'Poppins', sans-serif;
+  }
+}
+
+@layer components {
+  /* Button Styles */
+  .btn {
+    @apply px-6 py-3 rounded-2xl font-semibold transition-all duration-300 cursor-pointer inline-flex items-center justify-center gap-2;
+  }
+
+  .btn-primary {
+    @apply bg-gradient-to-r from-primary to-accent text-white shadow-lg shadow-primary/30 hover:shadow-xl hover:shadow-primary/40 hover:-translate-y-0.5 active:translate-y-0 active:shadow-md;
+  }
+
+  .btn-secondary {
+    @apply bg-secondary text-white shadow-lg shadow-secondary/30 hover:shadow-xl hover:shadow-secondary/40 hover:-translate-y-0.5 active:translate-y-0 active:shadow-md;
+  }
+
+  .btn-ghost {
+    @apply bg-transparent text-primary hover:bg-primary/10;
+  }
+
+  .btn-big {
+    @apply text-xl px-8 py-5 min-h-[64px];
+  }
+
+  /* Card Styles */
+  .card {
+    @apply bg-white rounded-3xl p-8 shadow-xl transition-all duration-300;
+  }
+
+  .card:hover {
+    @apply shadow-2xl -translate-y-1;
+  }
+
+  .card-fun {
+    @apply bg-gradient-to-br from-secondary to-secondary-dark text-white;
+  }
+
+  /* Input Styles */
+  .input {
+    @apply w-full px-5 py-4 border-3 border-secondary rounded-xl text-base transition-all duration-300 bg-white;
+  }
+
+  .input:focus {
+    @apply outline-none border-primary ring-4 ring-primary/10 scale-[1.02];
+  }
+
+  /* Loader Styles */
+  .spinner {
+    @apply w-16 h-16 border-6 border-secondary-light border-t-primary rounded-full animate-spin;
+  }
+
+  /* Gradient Text */
+  .gradient-text {
+    @apply bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent;
+  }
+}
+
+@layer utilities {
+  /* Custom animations */
+  @keyframes shine {
+    0% {
+      left: -100%;
+    }
+    100% {
+      left: 100%;
+    }
+  }
+
+  .btn-shine {
+    position: relative;
+    overflow: hidden;
+  }
+
+  .btn-shine::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
+    transition: left 0.5s;
+  }
+
+  .btn-shine:hover::before {
+    left: 100%;
+  }
+
+  /* Floating animation */
+  @keyframes float {
+    0%, 100% {
+      transform: translateY(0px);
+    }
+    50% {
+      transform: translateY(-10px);
+    }
+  }
+
+  .animate-float {
+    animation: float 3s ease-in-out infinite;
+  }
+
+  /* Potato wiggle */
+  .potato-emoji {
+    @apply text-8xl inline-block animate-wiggle;
+  }
+
+  /* Confetti */
+  .confetti-piece {
+    @apply absolute w-3 h-3 rounded-sm animate-confetti-fall;
+  }
+}
+
+/* QR Scanner specific styles */
+#qr-reader {
+  @apply w-full max-w-md mx-auto rounded-2xl overflow-hidden;
+}
+
+#qr-reader video {
+  @apply w-full h-auto;
+}
+
+/* Loading states */
+.loading-dots::after {
+  content: '';
+  animation: dots 1.5s steps(4, end) infinite;
+}
+
+@keyframes dots {
+  0%, 20% {
+    content: '.';
+  }
+  40% {
+    content: '..';
+  }
+  60%, 100% {
+    content: '...';
+  }
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  @apply bg-gray-100 rounded-full;
+}
+
+::-webkit-scrollbar-thumb {
+  @apply bg-primary/30 rounded-full hover:bg-primary/50;
+}
