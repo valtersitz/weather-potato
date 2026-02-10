@@ -1,6 +1,6 @@
 {
-    "buildCommand": "cd PWApp && npm install && npm run build",
-    "outputDirectory": "PWApp/dist",
+    "buildCommand": "npm run build",
+    "outputDirectory": "dist",
     "framework": "vite",
     "rewrites": [
       {
