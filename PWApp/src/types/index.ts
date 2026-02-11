@@ -68,6 +68,7 @@ export type Language = 'en' | 'fr' | 'es' | 'de';
 export type OnboardingStep =
   | 'welcome'
   | 'ble-connect'
+  | 'ap-mode'
   | 'wifi-setup'
   | 'location-setup'
   | 'validation'

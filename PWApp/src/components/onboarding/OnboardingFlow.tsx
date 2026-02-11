@@ -7,8 +7,9 @@ import { ManualWiFiEntry } from './ManualWiFiEntry';
 import { LocationSetup } from './LocationSetup';
 import { ValidationScreen } from './ValidationScreen';
 import { SuccessScreen } from './SuccessScreen';
+import { APModeOnboarding } from './APModeOnboarding';
 import { loadPotatoConfig } from '../../services/localConnectionService';
-import { supportsWebBluetooth } from '../../utils/platform';
+import { supportsWebBluetooth, isIOS } from '../../utils/platform';
 import { STORAGE_DEVICE_ID } from '../../utils/constants';
 import type {
   OnboardingStep,
@@ -62,10 +63,17 @@ export const OnboardingFlow = () => {
   }, [navigate]);
 
   const handleStart = () => {
-    // Skip BLE if not supported (old browsers)
+    // iOS doesn't support Web Bluetooth in Safari/Chrome - use AP mode
+    if (isIOS()) {
+      console.log('iOS detected, using AP mode onboarding');
+      setStep('ap-mode');
+      return;
+    }
+
+    // Check if Web Bluetooth is supported
     if (!supportsWebBluetooth()) {
-      console.log('Web Bluetooth not supported, skipping to WiFi setup');
-      setStep('wifi-setup');
+      console.log('Web Bluetooth not supported, using AP mode');
+      setStep('ap-mode');
     } else {
       setStep('ble-connect');
     }
@@ -141,6 +149,24 @@ export const OnboardingFlow = () => {
     setStep('wifi-setup');
   };
 
+  const handleAPModeComplete = (
+    detectedDeviceId: string,
+    credentials: WiFiCredentials,
+    locationInfo: LocationInfo
+  ) => {
+    console.log('[OnboardingFlow] AP mode configuration complete');
+    console.log('[OnboardingFlow] Device ID:', detectedDeviceId);
+
+    setDeviceId(detectedDeviceId);
+    localStorage.setItem(STORAGE_DEVICE_ID, detectedDeviceId);
+    setWifiCredentials(credentials);
+    setLocation(locationInfo);
+
+    // Since we sent config via AP, device should now connect to WiFi
+    // Navigate directly to validation (without BLE connection)
+    setStep('validation');
+  };
+
   return (
     <div className="onboarding-flow">
       {step === 'welcome' && (
@@ -155,6 +181,13 @@ export const OnboardingFlow = () => {
           deviceId={deviceId}
           onConnected={handleBLEConnected}
           onSkip={handleSkipBLE}
+          onBack={() => setStep('welcome')}
+        />
+      )}
+
+      {step === 'ap-mode' && (
+        <APModeOnboarding
+          onComplete={handleAPModeComplete}
           onBack={() => setStep('welcome')}
         />
       )}

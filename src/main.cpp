@@ -102,6 +102,7 @@ void interpretWeatherSymbol(int code, int temperature);
 void addCORSHeaders();
 void handleCORSPreflight();
 void handleRootPage();
+void handleDeviceInfo();
 void handleHealthEndpoint();
 void handleWeatherEndpoint();
 void handleConfigSubmission();
@@ -343,6 +344,7 @@ void connectToWiFiViaBLE() {
 
     // Setup HTTP server endpoints
     server.on("/", HTTP_GET, handleRootPage);
+    server.on("/device-info", HTTP_GET, handleDeviceInfo);  // For AP mode onboarding
     server.on("/health", HTTP_GET, handleHealthEndpoint);  // For PWA validation
     server.on("/weather", HTTP_GET, handleWeatherEndpoint);  // For PWA weather display
     server.on("/config", HTTP_POST, handleConfigSubmission);
@@ -351,8 +353,10 @@ void connectToWiFiViaBLE() {
     server.on("/otaUpdate", HTTP_POST, handleOTAUpdate);
 
     // Handle CORS preflight requests
+    server.on("/device-info", HTTP_OPTIONS, handleCORSPreflight);
     server.on("/health", HTTP_OPTIONS, handleCORSPreflight);
     server.on("/weather", HTTP_OPTIONS, handleCORSPreflight);
+    server.on("/config", HTTP_OPTIONS, handleCORSPreflight);
     server.on("/location", HTTP_OPTIONS, handleCORSPreflight);
 
     server.begin();
@@ -486,21 +490,68 @@ void handleRootPage() {
   server.send(200, "text/html", html);
 }
 
-void handleConfigSubmission() {
-  if (server.hasArg("ssid") && server.hasArg("password")) {
-    wifiSSID = server.arg("ssid");
-    wifiPassword = server.arg("password");
+// Device info endpoint for AP mode onboarding
+void handleDeviceInfo() {
+  addCORSHeaders();  // Add CORS for PWA access
 
-    Serial.println("WiFi credentials updated via HTTP");
+  String response = "{";
+  response += "\"device_id\":\"" + deviceId + "\",";
+  response += "\"mac_address\":\"" + WiFi.macAddress() + "\",";
+  response += "\"firmware_version\":\"1.0.0\",";
+  response += "\"ap_ssid\":\"" + String(apSSID) + "\",";
+  response += "\"ap_ip\":\"" + WiFi.softAPIP().toString() + "\",";
+  response += "\"mode\":\"AP\"";
+  response += "}";
+
+  server.send(200, "application/json", response);
+  Serial.println("Device info request handled (AP mode)");
+}
+
+void handleConfigSubmission() {
+  addCORSHeaders();  // Add CORS for PWA access
+
+  // Parse JSON body
+  String body = server.arg("plain");
+  StaticJsonDocument<300> doc;
+  DeserializationError error = deserializeJson(doc, body);
+
+  if (error) {
+    Serial.printf("JSON parse error: %s\n", error.c_str());
+    String response = "{\"success\":false,\"error\":\"Invalid JSON\"}";
+    server.send(400, "application/json", response);
+    return;
+  }
+
+  // Extract WiFi credentials
+  if (doc.containsKey("ssid") && doc.containsKey("password")) {
+    wifiSSID = doc["ssid"].as<String>();
+    wifiPassword = doc["password"].as<String>();
+
+    Serial.println("WiFi credentials updated via HTTP/AP");
     Serial.println("SSID: " + wifiSSID);
 
-    server.send(200, "text/plain", "WiFi credentials updated. Reconnecting...");
+    // Optional: Extract GPS coordinates if provided
+    if (doc.containsKey("latitude") && doc.containsKey("longitude")) {
+      latitude = doc["latitude"].as<float>();
+      longitude = doc["longitude"].as<float>();
+      Serial.printf("GPS coordinates also received: %.6f, %.6f\n", latitude, longitude);
+    }
 
+    // Send success response
+    String response = "{";
+    response += "\"success\":true,";
+    response += "\"message\":\"Connecting to WiFi...\",";
+    response += "\"ssid\":\"" + wifiSSID + "\"";
+    response += "}";
+    server.send(200, "application/json", response);
+
+    // Attempt WiFi connection
     delay(1000);
     WiFi.disconnect();
     WiFi.begin(wifiSSID.c_str(), wifiPassword.c_str());
   } else {
-    server.send(400, "text/plain", "Error: Missing parameters");
+    String response = "{\"success\":false,\"error\":\"Missing ssid or password\"}";
+    server.send(400, "application/json", response);
   }
 }
 
@@ -681,11 +732,20 @@ void setup() {
       }
 
       server.on("/", HTTP_GET, handleRootPage);
+      server.on("/device-info", HTTP_GET, handleDeviceInfo);
       server.on("/health", HTTP_GET, handleHealthEndpoint);
+      server.on("/weather", HTTP_GET, handleWeatherEndpoint);
       server.on("/config", HTTP_POST, handleConfigSubmission);
       server.on("/location", HTTP_POST, handleLocationSubmission);
       server.on("/ota", HTTP_GET, handleOTAPage);
       server.on("/otaUpdate", HTTP_POST, handleOTAUpdate);
+
+      // Handle CORS preflight requests
+      server.on("/device-info", HTTP_OPTIONS, handleCORSPreflight);
+      server.on("/health", HTTP_OPTIONS, handleCORSPreflight);
+      server.on("/weather", HTTP_OPTIONS, handleCORSPreflight);
+      server.on("/config", HTTP_OPTIONS, handleCORSPreflight);
+      server.on("/location", HTTP_OPTIONS, handleCORSPreflight);
 
       server.begin();
       Serial.println("HTTP server started on port 8080");
