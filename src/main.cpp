@@ -353,6 +353,7 @@ void connectToWiFiViaBLE() {
     // Handle CORS preflight requests
     server.on("/health", HTTP_OPTIONS, handleCORSPreflight);
     server.on("/weather", HTTP_OPTIONS, handleCORSPreflight);
+    server.on("/location", HTTP_OPTIONS, handleCORSPreflight);
 
     server.begin();
     Serial.println("HTTP server started on port 8080 with CORS enabled");
@@ -504,15 +505,42 @@ void handleConfigSubmission() {
 }
 
 void handleLocationSubmission() {
-  if (server.hasArg("latitude") && server.hasArg("longitude")) {
-    latitude = server.arg("latitude").toFloat();
-    longitude = server.arg("longitude").toFloat();
+  addCORSHeaders();  // Add CORS for HTTPS PWA access
 
-    Serial.printf("Location updated: %.6f, %.6f\n", latitude, longitude);
+  // Parse JSON body
+  String body = server.arg("plain");
+  StaticJsonDocument<200> doc;
+  DeserializationError error = deserializeJson(doc, body);
 
-    server.send(200, "text/plain", "Location updated successfully");
+  if (error) {
+    Serial.printf("JSON parse error: %s\n", error.c_str());
+    String response = "{\"success\":false,\"error\":\"Invalid JSON\"}";
+    server.send(400, "application/json", response);
+    return;
+  }
+
+  // Extract coordinates
+  if (doc.containsKey("latitude") && doc.containsKey("longitude")) {
+    latitude = doc["latitude"].as<float>();
+    longitude = doc["longitude"].as<float>();
+
+    Serial.printf("Location updated via HTTP: %.6f, %.6f\n", latitude, longitude);
+
+    // Send success response
+    String response = "{";
+    response += "\"success\":true,";
+    response += "\"latitude\":" + String(latitude, 6) + ",";
+    response += "\"longitude\":" + String(longitude, 6) + ",";
+    response += "\"message\":\"Location updated, fetching weather...\"";
+    response += "}";
+    server.send(200, "application/json", response);
+
+    // Trigger weather update in background
+    Serial.println("Triggering weather update for new location...");
+    // Weather will be fetched in next loop cycle
   } else {
-    server.send(400, "text/plain", "Error: Missing parameters");
+    String response = "{\"success\":false,\"error\":\"Missing latitude or longitude\"}";
+    server.send(400, "application/json", response);
   }
 }
 

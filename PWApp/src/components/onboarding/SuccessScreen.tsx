@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useI18n } from '../../hooks/useI18n';
 import { Card } from '../ui/Card';
 import { Button } from '../ui/Button';
@@ -12,6 +13,7 @@ interface SuccessScreenProps {
 }
 
 export const SuccessScreen = ({ config }: SuccessScreenProps) => {
+  const navigate = useNavigate();
   const { t } = useI18n();
   const [showConfetti, setShowConfetti] = useState(true);
   const [testing, setTesting] = useState(false);
@@ -95,7 +97,7 @@ export const SuccessScreen = ({ config }: SuccessScreenProps) => {
 
           <Button
             variant="secondary"
-            onClick={() => window.location.href = '/dashboard'}
+            onClick={() => navigate('/dashboard')}
             className="w-full"
           >
             {t('success.dashboard')} 📊
