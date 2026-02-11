@@ -25,6 +25,7 @@ export const APConnectionScreen = ({
   const [isConnected, setIsConnected] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+  const [connectivityCheck, setConnectivityCheck] = useState<'checking' | 'success' | 'failed' | null>(null);
 
   const handleCopyPassword = async () => {
     try {
@@ -44,6 +45,35 @@ export const APConnectionScreen = ({
       window.location.href = 'App-Prefs:root=WIFI';
     } catch (err) {
       console.log('[AP] Deep link not supported, user must open settings manually');
+    }
+  };
+
+  const handleTestConnectivity = async () => {
+    setConnectivityCheck('checking');
+    setError('');
+
+    try {
+      console.log('[AP] Testing connectivity to Weather Potato AP...');
+
+      const response = await fetch(`http://${AP_IP}:${AP_PORT}/device-info`, {
+        method: 'GET',
+        signal: AbortSignal.timeout(3000)
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        console.log('[AP] ✅ Connectivity test SUCCESS:', data);
+        setConnectivityCheck('success');
+        setIsConnected(true); // Auto-advance to submit screen
+      } else {
+        throw new Error(`HTTP ${response.status}`);
+      }
+    } catch (err) {
+      console.error('[AP] ❌ Connectivity test FAILED:', err);
+      setConnectivityCheck('failed');
+      setError(
+        `Cannot reach Weather Potato AP. Make sure you're connected to "${AP_SSID}" network. Error: ${err instanceof Error ? err.message : 'Unknown'}`
+      );
     }
   };
 
@@ -97,10 +127,9 @@ export const APConnectionScreen = ({
       onComplete(deviceId);
     } catch (err) {
       console.error('[AP] Error submitting configuration:', err);
+      const errorMessage = err instanceof Error ? err.message : 'Unknown error';
       setError(
-        err instanceof Error
-          ? err.message
-          : 'Failed to configure device. Make sure you are connected to the Weather Potato AP.'
+        `Failed to send configuration: ${errorMessage}\n\nMake sure:\n• You're connected to "${AP_SSID}"\n• You didn't refresh this page\n• Weather Potato is powered on`
       );
       setSubmitting(false);
     }
@@ -160,12 +189,42 @@ export const APConnectionScreen = ({
               </p>
             </div>
 
+            {/* Warning */}
+            <div className="mb-4 p-3 bg-warning/20 rounded-xl">
+              <p className="text-sm text-gray-700">
+                <strong>⚠️ Important:</strong> Don't close or refresh this page after connecting to the AP!
+              </p>
+            </div>
+
+            {/* Connectivity Check Status */}
+            {connectivityCheck === 'checking' && (
+              <div className="mb-4 p-3 bg-primary/10 rounded-xl">
+                <p className="text-sm text-primary">🔍 Testing connection...</p>
+              </div>
+            )}
+
+            {connectivityCheck === 'success' && (
+              <div className="mb-4 p-3 bg-success/20 rounded-xl">
+                <p className="text-sm text-success">✅ Connected to Weather Potato!</p>
+              </div>
+            )}
+
+            {connectivityCheck === 'failed' && error && (
+              <div className="mb-4 p-3 bg-error/20 rounded-xl">
+                <p className="text-sm text-error">{error}</p>
+              </div>
+            )}
+
             <Button
               size="big"
-              onClick={() => setIsConnected(true)}
+              onClick={handleTestConnectivity}
               className="w-full mb-3"
+              loading={connectivityCheck === 'checking'}
+              disabled={connectivityCheck === 'checking'}
             >
-              I'm Connected to Weather Potato →
+              {connectivityCheck === 'checking'
+                ? 'Testing Connection...'
+                : 'Test Connection & Continue →'}
             </Button>
 
             <Button
