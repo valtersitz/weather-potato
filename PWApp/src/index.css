@@ -50,7 +50,7 @@
 
   /* Input Styles */
   .input {
-    @apply w-full px-5 py-4 border-3 border-secondary rounded-xl text-base transition-all duration-300 bg-white;
+    @apply w-full px-5 py-4 border-2 border-secondary rounded-xl text-base transition-all duration-300 bg-white;
   }
 
   .input:focus {
@@ -59,7 +59,7 @@
 
   /* Loader Styles */
   .spinner {
-    @apply w-16 h-16 border-6 border-secondary-light border-t-primary rounded-full animate-spin;
+    @apply w-16 h-16 border-4 border-secondary-light border-t-primary rounded-full animate-spin;
   }
 
   /* Gradient Text */
