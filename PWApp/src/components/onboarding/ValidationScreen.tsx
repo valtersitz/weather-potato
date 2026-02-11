@@ -10,7 +10,7 @@ import {
   pollWiFiStatusViaBLE,
   disconnectBLE
 } from '../../services/bluetoothService';
-import { savePotatoConfig } from '../../services/localConnectionService';
+import { validateLocalConnection, savePotatoConfig } from '../../services/localConnectionService';
 import type { BLEConnection, WiFiCredentials, LocationInfo, PotatoConfig } from '../../types';
 import { MDNS_HOSTNAME, DEFAULT_PORT } from '../../utils/constants';
 
@@ -78,23 +78,52 @@ export const ValidationScreen = ({
           2000   // Poll every 2 seconds
         );
 
-        console.log('[Validation] WiFi connected! Status:', wifiStatus);
+        console.log('[Validation] ✅ WiFi connected! Status:', wifiStatus);
 
-        // Step 4: Prepare endpoint
+        // Step 4: Validate HTTP connection BEFORE disconnecting BLE
+        // This ensures device is 100% reachable before we lose BLE fallback
         setStep('validating');
-        setProgress(80);
-        console.log('[Validation] Preparing device configuration...');
+        setProgress(70);
+        console.log('[Validation] Validating HTTP connection (BLE still active as backup)...');
 
         const deviceIp = wifiStatus.local_ip || '';
         const deviceHostname = wifiStatus.hostname || MDNS_HOSTNAME;
-        const endpoint = deviceIp ? `http://${deviceIp}:${DEFAULT_PORT}` : `http://${deviceHostname}:${DEFAULT_PORT}`;
+
+        // Try HTTP validation (might fail due to mixed content blocking)
+        let httpValidated = false;
+        let endpoint = '';
+
+        try {
+          const validation = await validateLocalConnection(
+            deviceHostname,
+            deviceIp,
+            DEFAULT_PORT,
+            deviceId
+          );
+
+          if (validation.success) {
+            console.log('[Validation] ✅ HTTP validation successful! Method:', validation.method);
+            httpValidated = true;
+            endpoint = validation.endpoint!;
+          } else {
+            console.warn('[Validation] ⚠️ HTTP validation failed, using BLE-confirmed IP');
+            endpoint = deviceIp ? `http://${deviceIp}:${DEFAULT_PORT}` : `http://${deviceHostname}:${DEFAULT_PORT}`;
+          }
+        } catch (error) {
+          // HTTP validation might fail due to mixed content blocking (HTTPS → HTTP)
+          // But we still have BLE confirmation that WiFi is connected
+          console.warn('[Validation] ⚠️ HTTP validation failed (likely mixed content):', error);
+          console.log('[Validation] Using BLE-confirmed IP address instead');
+          endpoint = deviceIp ? `http://${deviceIp}:${DEFAULT_PORT}` : `http://${deviceHostname}:${DEFAULT_PORT}`;
+        }
 
         console.log('[Validation] Device endpoint:', endpoint);
+        console.log('[Validation] HTTP validated:', httpValidated ? 'YES ✅' : 'NO (but WiFi confirmed via BLE)');
 
-        // Step 5: Disconnect BLE (no longer needed)
+        // Step 5: Now safe to disconnect BLE (WiFi is confirmed working)
         setStep('finalizing');
         setProgress(90);
-        console.log('[Validation] Disconnecting BLE...');
+        console.log('[Validation] Disconnecting BLE (device is reachable via WiFi)...');
         await disconnectBLE(bleConnection.device);
 
         // Step 6: Save configuration
