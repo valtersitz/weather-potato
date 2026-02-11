@@ -79,7 +79,7 @@ export const WiFiQRScanner = ({ onScanned, onManualEntry, onBack }: WiFiQRScanne
             hasScannedRef.current = true; // Mark as scanned
 
             // Stop scanner in background (don't wait for it)
-            scanner.stop().catch((err) => {
+            scanner.stop().catch((err: unknown) => {
               console.warn('[WiFiQRScanner] Error stopping scanner (safe to ignore):', err);
             });
 
