@@ -29,6 +29,7 @@ export const APModeOnboarding = ({ onComplete, onBack }: APModeOnboardingProps) 
   const [city, setCity] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [passwordCopied, setPasswordCopied] = useState(false);
 
   // Try to fetch device info when on WiFi entry step
   useEffect(() => {
@@ -53,6 +54,30 @@ export const APModeOnboarding = ({ onComplete, onBack }: APModeOnboardingProps) 
       }
     } catch (err) {
       console.warn('[AP] Could not fetch device info (user might not be connected to AP yet):', err);
+    }
+  };
+
+  const handleCopyPassword = async () => {
+    try {
+      await navigator.clipboard.writeText(AP_PASSWORD);
+      setPasswordCopied(true);
+      console.log('[AP] Password copied to clipboard');
+
+      // Reset the "copied" indicator after 2 seconds
+      setTimeout(() => setPasswordCopied(false), 2000);
+    } catch (err) {
+      console.error('[AP] Failed to copy password:', err);
+      alert(`Password: ${AP_PASSWORD}\n\nPlease copy it manually.`);
+    }
+  };
+
+  const handleOpenWiFiSettings = () => {
+    // Try iOS deep link to WiFi settings
+    // Note: This may not work on newer iOS versions due to Apple restrictions
+    try {
+      window.location.href = 'App-Prefs:root=WIFI';
+    } catch (err) {
+      console.log('[AP] Deep link not supported, user must open settings manually');
     }
   };
 
@@ -153,32 +178,65 @@ export const APModeOnboarding = ({ onComplete, onBack }: APModeOnboardingProps) 
             </p>
 
             <div className="space-y-4 mb-6">
+              {/* SSID Display */}
+              <div className="p-4 bg-gradient-to-br from-secondary/20 to-primary/20 rounded-xl border-2 border-primary/30">
+                <p className="text-sm text-gray-600 mb-2">Connect to this WiFi network:</p>
+                <div className="bg-white p-3 rounded-lg border border-gray-300 mb-3">
+                  <p className="font-mono text-xl font-bold text-center text-primary">
+                    {AP_SSID}
+                  </p>
+                </div>
+
+                {/* Copy Password Button */}
+                <Button
+                  onClick={handleCopyPassword}
+                  className="w-full mb-2"
+                  variant={passwordCopied ? 'secondary' : 'primary'}
+                >
+                  {passwordCopied ? '✅ Password Copied!' : '📋 Copy Password'}
+                </Button>
+
+                {/* Open WiFi Settings Button */}
+                <Button
+                  onClick={handleOpenWiFiSettings}
+                  className="w-full"
+                  variant="secondary"
+                >
+                  📶 Open WiFi Settings & Paste Password
+                </Button>
+
+                <p className="text-xs text-gray-500 mt-2 text-center">
+                  Password: <span className="font-mono">{AP_PASSWORD}</span>
+                </p>
+              </div>
+
+              {/* Step-by-step instructions */}
               <div className="flex gap-3 p-4 bg-accent/10 rounded-xl">
                 <div className="text-2xl">1️⃣</div>
                 <div>
-                  <h3 className="font-semibold text-gray-700">Open WiFi Settings</h3>
-                  <p className="text-sm text-gray-600">Go to your device's WiFi settings</p>
+                  <h3 className="font-semibold text-gray-700">Copy Password</h3>
+                  <p className="text-sm text-gray-600">
+                    Tap "Copy Password" above to copy it to your clipboard
+                  </p>
                 </div>
               </div>
 
               <div className="flex gap-3 p-4 bg-accent/10 rounded-xl">
                 <div className="text-2xl">2️⃣</div>
                 <div>
-                  <h3 className="font-semibold text-gray-700">Connect to Potato AP</h3>
-                  <p className="text-sm text-gray-600 mb-2">Look for this network:</p>
-                  <div className="bg-white p-2 rounded border border-gray-300">
-                    <p className="font-mono text-sm"><strong>WiFi:</strong> {AP_SSID}</p>
-                    <p className="font-mono text-sm"><strong>Password:</strong> {AP_PASSWORD}</p>
-                  </div>
+                  <h3 className="font-semibold text-gray-700">Open WiFi Settings</h3>
+                  <p className="text-sm text-gray-600">
+                    Tap "Open WiFi Settings" above (or open settings manually)
+                  </p>
                 </div>
               </div>
 
               <div className="flex gap-3 p-4 bg-accent/10 rounded-xl">
                 <div className="text-2xl">3️⃣</div>
                 <div>
-                  <h3 className="font-semibold text-gray-700">Return to This Page</h3>
+                  <h3 className="font-semibold text-gray-700">Connect & Return</h3>
                   <p className="text-sm text-gray-600">
-                    After connecting, come back here and click "I'm Connected"
+                    Select "{AP_SSID}", paste the password, connect, then return here
                   </p>
                 </div>
               </div>
