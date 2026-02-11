@@ -56,13 +56,24 @@ export const WiFiQRScanner = ({ onScanned, onManualEntry, onBack }: WiFiQRScanne
           aspectRatio: 1.0
         },
         (decodedText) => {
+          console.log('QR Code detected:', decodedText);
           const wifiData = parseWiFiQR(decodedText);
+          console.log('Parsed WiFi data:', wifiData);
 
           if (wifiData) {
+            console.log('Valid WiFi QR code found, stopping scanner...');
             scanner.stop().then(() => {
               setScanning(false);
               onScanned(wifiData);
+            }).catch((err) => {
+              console.error('Error stopping scanner:', err);
+              setScanning(false);
+              onScanned(wifiData);
             });
+          } else {
+            console.warn('QR code is not a valid WiFi format:', decodedText);
+            setError('Invalid WiFi QR code. Please scan a WiFi QR code from your router.');
+            scanner.stop().then(() => setScanning(false));
           }
         },
         () => {

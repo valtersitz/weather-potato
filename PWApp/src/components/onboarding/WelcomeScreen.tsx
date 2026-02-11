@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react';
 import { useI18n } from '../../hooks/useI18n';
 import { Button } from '../ui/Button';
 import { Card } from '../ui/Card';
@@ -9,9 +10,49 @@ interface WelcomeScreenProps {
   deviceId: string;
 }
 
+interface BeforeInstallPromptEvent extends Event {
+  prompt: () => Promise<void>;
+  userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }>;
+}
+
 export const WelcomeScreen = ({ onStart, deviceId }: WelcomeScreenProps) => {
   const { t } = useI18n();
   const capabilities = checkBrowserSupport();
+  const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
+  const [isInstalled, setIsInstalled] = useState(false);
+
+  useEffect(() => {
+    // Check if already installed
+    if (window.matchMedia('(display-mode: standalone)').matches) {
+      setIsInstalled(true);
+    }
+
+    // Listen for install prompt
+    const handler = (e: Event) => {
+      e.preventDefault();
+      setDeferredPrompt(e as BeforeInstallPromptEvent);
+    };
+
+    window.addEventListener('beforeinstallprompt', handler);
+
+    return () => {
+      window.removeEventListener('beforeinstallprompt', handler);
+    };
+  }, []);
+
+  const handleInstall = async () => {
+    if (!deferredPrompt) return;
+
+    deferredPrompt.prompt();
+    const { outcome } = await deferredPrompt.userChoice;
+
+    if (outcome === 'accepted') {
+      console.log('PWA installed');
+      setIsInstalled(true);
+    }
+
+    setDeferredPrompt(null);
+  };
 
   return (
     <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-primary-light via-secondary-light to-accent">
@@ -33,18 +74,38 @@ export const WelcomeScreen = ({ onStart, deviceId }: WelcomeScreenProps) => {
           </div>
         )}
 
-        <Button
-          size="big"
-          onClick={onStart}
-          className="w-full"
-        >
-          {t('welcome.cta')} 🚀
-        </Button>
+        <div className="space-y-4">
+          <Button
+            size="big"
+            onClick={onStart}
+            className="w-full"
+          >
+            {t('welcome.cta')} 🚀
+          </Button>
+
+          {!isInstalled && deferredPrompt && (
+            <Button
+              variant="secondary"
+              onClick={handleInstall}
+              className="w-full"
+            >
+              📲 Install App on Home Screen
+            </Button>
+          )}
+        </div>
 
         {!capabilities.bluetooth && (
           <div className="mt-6 p-4 bg-warning/20 rounded-xl">
             <p className="text-sm text-gray-700">
               ⚠️ {t('ble.notSupportedDesc')}
+            </p>
+          </div>
+        )}
+
+        {isInstalled && (
+          <div className="mt-6 p-4 bg-success/20 rounded-xl">
+            <p className="text-sm text-gray-700">
+              ✅ App is installed on your home screen!
             </p>
           </div>
         )}
