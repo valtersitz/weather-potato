@@ -18,25 +18,27 @@ export const LocationSetup = ({ onLocationSet, onBack }: LocationSetupProps) => 
   const [locationInfo, setLocationInfo] = useState<LocationInfo | null>(null);
   const [manualCity, setManualCity] = useState('');
 
-  useEffect(() => {
-    detectLocation();
-  }, []);
+  // Don't auto-detect on mount - let user trigger it
+  // This prevents permission prompts from blocking the UI
 
   const detectLocation = async () => {
+    console.log('[LocationSetup] Starting location detection...');
     setStatus('detecting');
 
     try {
       const info = await getLocationInfo();
+      console.log('[LocationSetup] Location detected:', info);
       setLocationInfo(info);
       setStatus('idle');
     } catch (error) {
-      console.error('Geolocation error:', error);
+      console.error('[LocationSetup] Geolocation error:', error);
       setStatus('error');
     }
   };
 
   const handleContinue = () => {
     if (locationInfo) {
+      console.log('[LocationSetup] Continuing with location:', locationInfo);
       onLocationSet(locationInfo);
     }
   };
@@ -49,6 +51,7 @@ export const LocationSetup = ({ onLocationSet, onBack }: LocationSetupProps) => 
       longitude: 2.3522,
       city: manualCity || 'Your location'
     };
+    console.log('[LocationSetup] Manual location submitted:', defaultLocation);
     onLocationSet(defaultLocation);
   };
 
@@ -151,7 +154,7 @@ export const LocationSetup = ({ onLocationSet, onBack }: LocationSetupProps) => 
                     onClick={detectLocation}
                     className="w-full"
                   >
-                    Retry Location Detection 🔄
+                    {status === 'error' ? 'Retry Location Detection 🔄' : 'Detect My Location 📍'}
                   </Button>
 
                   <Button

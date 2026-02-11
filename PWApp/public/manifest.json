@@ -3,6 +3,7 @@
   "short_name": "WeatherPotato",
   "description": "Your fun IoT weather companion",
   "start_url": "/",
+  "scope": "/",
   "display": "standalone",
   "background_color": "#FF6B6B",
   "theme_color": "#FF6B6B",
@@ -21,16 +22,5 @@
       "purpose": "any maskable"
     }
   ],
-  "categories": ["weather", "utilities", "lifestyle"],
-  "screenshots": [],
-  "share_target": {
-    "action": "/share",
-    "method": "POST",
-    "enctype": "multipart/form-data",
-    "params": {
-      "title": "title",
-      "text": "text",
-      "url": "url"
-    }
-  }
+  "categories": ["weather", "utilities", "lifestyle"]
 }

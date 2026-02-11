@@ -20,6 +20,8 @@ import type {
 function App() {
   const [step, setStep] = useState<OnboardingStep>('welcome');
   const [deviceId, setDeviceId] = useState<string>('');
+
+  console.log('[App] Current step:', step);
   const [bleConnection, setBleConnection] = useState<BLEConnection | null>(null);
   const [wifiCredentials, setWifiCredentials] = useState<WiFiCredentials | null>(null);
   const [location, setLocation] = useState<LocationInfo | null>(null);
@@ -90,6 +92,7 @@ function App() {
   };
 
   const handleWiFiScanned = (credentials: WiFiCredentials) => {
+    console.log('[App] WiFi credentials scanned, navigating to location setup');
     setWifiCredentials(credentials);
     setStep('location-setup');
   };
@@ -116,11 +119,13 @@ function App() {
   };
 
   const handleLocationSet = (locationInfo: LocationInfo) => {
+    console.log('[App] Location set, navigating to validation');
     setLocation(locationInfo);
     setStep('validation');
   };
 
   const handleValidationSuccess = (config: PotatoConfig) => {
+    console.log('[App] Validation successful, navigating to success screen');
     setPotatoConfig(config);
     setStep('success');
   };
