@@ -5,14 +5,16 @@ import { Card } from '../ui/Card';
 import { Button } from '../ui/Button';
 import { Modal } from '../ui/Modal';
 import { parseWiFiQR } from '../../utils/helpers';
+import { requestCameraPermission } from '../../utils/platform';
 import type { WiFiCredentials } from '../../types';
 
 interface WiFiQRScannerProps {
   onScanned: (credentials: WiFiCredentials) => void;
   onManualEntry: () => void;
+  onBack?: () => void;
 }
 
-export const WiFiQRScanner = ({ onScanned, onManualEntry }: WiFiQRScannerProps) => {
+export const WiFiQRScanner = ({ onScanned, onManualEntry, onBack }: WiFiQRScannerProps) => {
   const { t } = useI18n();
   const [scanning, setScanning] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
@@ -32,6 +34,17 @@ export const WiFiQRScanner = ({ onScanned, onManualEntry }: WiFiQRScannerProps) 
     setError('');
 
     try {
+      // Request camera permission BEFORE initializing scanner
+      console.log('Requesting camera permission...');
+      const hasPermission = await requestCameraPermission();
+
+      if (!hasPermission) {
+        setError('Camera permission denied. Please enable camera in Settings > Privacy > Camera.');
+        setScanning(false);
+        return;
+      }
+
+      console.log('Camera permission granted, starting scanner...');
       const scanner = new Html5Qrcode('qr-reader');
       scannerRef.current = scanner;
 
@@ -39,7 +52,8 @@ export const WiFiQRScanner = ({ onScanned, onManualEntry }: WiFiQRScannerProps) 
         { facingMode: 'environment' },
         {
           fps: 10,
-          qrbox: { width: 250, height: 250 }
+          qrbox: { width: 250, height: 250 },
+          aspectRatio: 1.0
         },
         (decodedText) => {
           const wifiData = parseWiFiQR(decodedText);
@@ -65,10 +79,20 @@ export const WiFiQRScanner = ({ onScanned, onManualEntry }: WiFiQRScannerProps) 
           });
         }
       }, 60000);
-    } catch (err) {
+    } catch (err: any) {
       console.error('Scanner error:', err);
       setScanning(false);
-      setError('Failed to start camera. Please check permissions.');
+
+      // Provide more specific error messages
+      if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+        setError('Camera access denied. Please allow camera access and try again.');
+      } else if (err.name === 'NotFoundError') {
+        setError('No camera found on this device.');
+      } else if (err.name === 'NotReadableError') {
+        setError('Camera is already in use by another app.');
+      } else {
+        setError('Failed to start camera: ' + (err.message || 'Unknown error'));
+      }
     }
   };
 
@@ -84,6 +108,16 @@ export const WiFiQRScanner = ({ onScanned, onManualEntry }: WiFiQRScannerProps) 
   return (
     <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-accent to-primary-light">
       <Card className="max-w-lg w-full">
+        {onBack && (
+          <Button
+            variant="ghost"
+            onClick={onBack}
+            className="mb-4"
+          >
+            ← Back
+          </Button>
+        )}
+
         <div className="text-center mb-8">
           <div className="text-6xl mb-4">📸</div>
           <h2 className="text-3xl font-bold mb-3 gradient-text">
