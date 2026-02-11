@@ -37,23 +37,23 @@ function App() {
       return;
     }
 
-    // Get device ID from URL parameter
+    // Get device ID from URL parameter (from QR code scan)
     const urlParams = new URLSearchParams(window.location.search);
     const urlDeviceId = urlParams.get('device');
 
     if (urlDeviceId) {
+      console.log('Device ID from URL:', urlDeviceId);
       setDeviceId(urlDeviceId);
       localStorage.setItem(STORAGE_DEVICE_ID, urlDeviceId);
     } else {
       // Check localStorage for previous device ID
       const savedDeviceId = localStorage.getItem(STORAGE_DEVICE_ID);
       if (savedDeviceId) {
+        console.log('Device ID from localStorage:', savedDeviceId);
         setDeviceId(savedDeviceId);
       } else {
-        // For testing: generate a random device ID
-        // In production, this should come from scanning the QR code
-        const testDeviceId = macToDeviceId('AA:BB:CC:DD:EE:FF');
-        setDeviceId(testDeviceId);
+        // No device ID yet - will be obtained from BLE or AP connection
+        console.log('No device ID yet - will be detected during onboarding');
       }
     }
   }, []);
@@ -70,6 +70,18 @@ function App() {
 
   const handleBLEConnected = (connection: BLEConnection) => {
     setBleConnection(connection);
+
+    // Extract device ID from BLE device name (format: "Potato-XXXXXXXX")
+    if (connection.device?.name) {
+      const match = connection.device.name.match(/Potato-([A-F0-9]{8})/i);
+      if (match) {
+        const detectedDeviceId = match[1].toUpperCase();
+        console.log('Device ID detected from BLE:', detectedDeviceId);
+        setDeviceId(detectedDeviceId);
+        localStorage.setItem(STORAGE_DEVICE_ID, detectedDeviceId);
+      }
+    }
+
     setStep('wifi-setup');
   };
 
