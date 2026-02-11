@@ -7,7 +7,6 @@ import { LocationSetup } from './components/onboarding/LocationSetup';
 import { ValidationScreen } from './components/onboarding/ValidationScreen';
 import { SuccessScreen } from './components/onboarding/SuccessScreen';
 import { loadPotatoConfig } from './services/localConnectionService';
-import { macToDeviceId } from './utils/helpers';
 import { supportsWebBluetooth } from './utils/platform';
 import { STORAGE_DEVICE_ID } from './utils/constants';
 import type {
