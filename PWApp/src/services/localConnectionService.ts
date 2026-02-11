@@ -9,6 +9,62 @@ interface ValidationResult {
 }
 
 /**
+ * Poll device HTTP endpoint until it's ready
+ * More reliable than BLE notifications for detecting WiFi connection
+ */
+export const pollDeviceHTTP = async (
+  hostname: string,
+  port: number,
+  deviceId: string,
+  timeout: number = 60000,
+  interval: number = 2000
+): Promise<{ ip: string; hostname: string; port: number }> => {
+  console.log('[HTTP] Starting HTTP polling...');
+  console.log('[HTTP] Target:', `http://${hostname}:${port}/health`);
+  console.log('[HTTP] Timeout:', timeout, 'ms, Interval:', interval, 'ms');
+
+  const startTime = Date.now();
+  const endpoint = `http://${hostname}:${port}`;
+
+  while (Date.now() - startTime < timeout) {
+    try {
+      console.log('[HTTP] Polling attempt...');
+      const response = await fetch(`${endpoint}/health`, {
+        method: 'GET',
+        signal: AbortSignal.timeout(3000) // 3s per request
+      });
+
+      console.log('[HTTP] Response status:', response.status);
+
+      if (response.ok) {
+        const data = await response.json();
+        console.log('[HTTP] Health data:', data);
+
+        if (data.device_id === deviceId && data.status === 'ready') {
+          console.log('[HTTP] ✅ Device is ready!');
+          return {
+            ip: data.local_ip || '',
+            hostname: hostname,
+            port: port
+          };
+        } else {
+          console.warn('[HTTP] Device ID mismatch or not ready:', data);
+        }
+      }
+    } catch (error) {
+      // Device not ready yet, continue polling
+      console.log('[HTTP] Not ready yet, retrying in', interval, 'ms...');
+    }
+
+    // Wait before next attempt
+    await new Promise(resolve => setTimeout(resolve, interval));
+  }
+
+  console.error('[HTTP] ⏰ Polling timeout! Device did not respond in', timeout, 'ms');
+  throw new Error('Device did not respond via HTTP');
+};
+
+/**
  * Validate local connection to Weather Potato
  */
 export const validateLocalConnection = async (
