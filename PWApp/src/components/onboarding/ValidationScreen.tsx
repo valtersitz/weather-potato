@@ -44,11 +44,17 @@ export const ValidationScreen = ({
   }, []);
 
   const performValidation = async () => {
+    console.log('[Validation] Starting validation...');
+    console.log('[Validation] BLE connection:', bleConnection ? 'CONNECTED' : 'NULL - NO CONNECTION!');
+    console.log('[Validation] Device ID:', deviceId);
+
     try {
       if (bleConnection) {
+        console.log('[Validation] Using BLE to send credentials...');
         // Step 1: Send WiFi credentials
         setStep('sending');
         setProgress(20);
+        console.log('[Validation] Sending WiFi credentials:', { ssid: wifiCredentials.ssid });
         await sendWiFiCredentials(
           bleConnection.characteristics.wifiConfigChar,
           wifiCredentials
@@ -107,19 +113,13 @@ export const ValidationScreen = ({
         savePotatoConfig(config);
         onSuccess(config);
       } else {
-        // No BLE connection - skip to success with placeholder config
-        // This would be used if user skipped BLE and only did manual configuration
-        const config: PotatoConfig = {
-          device_id: deviceId,
-          endpoint: `http://${MDNS_HOSTNAME}:${DEFAULT_PORT}`,
-          hostname: MDNS_HOSTNAME,
-          port: DEFAULT_PORT,
-          last_seen: Date.now(),
-          setup_complete: true
-        };
+        // No BLE connection - THIS IS A PROBLEM!
+        console.error('[Validation] ⚠️ NO BLE CONNECTION! Cannot send credentials to device.');
+        console.error('[Validation] This means credentials were never sent to Weather Potato.');
+        console.error('[Validation] Device will not connect to WiFi.');
 
-        savePotatoConfig(config);
-        onSuccess(config);
+        // Show error instead of fake success
+        throw new Error('BLE connection required to send credentials to device. Please go back and connect via Bluetooth first.');
       }
     } catch (error) {
       console.error('Validation error:', error);
