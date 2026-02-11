@@ -388,10 +388,12 @@ void handleHealthEndpoint() {
   String response = "{";
   response += "\"device_id\":\"" + deviceId + "\",";
   response += "\"status\":\"ready\",";
-  response += "\"firmware_version\":\"1.0.0\"";
+  response += "\"firmware_version\":\"1.0.0\",";
+  response += "\"local_ip\":\"" + WiFi.localIP().toString() + "\"";
   response += "}";
 
   server.send(200, "application/json", response);
+  Serial.println("Health check request handled");
 }
 
 void handleRootPage() {
