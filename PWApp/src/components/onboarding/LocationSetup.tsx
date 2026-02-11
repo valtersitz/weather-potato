@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useI18n } from '../../hooks/useI18n';
 import { Card } from '../ui/Card';
 import { Button } from '../ui/Button';
