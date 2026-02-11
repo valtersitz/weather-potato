@@ -105,14 +105,12 @@ export const WeatherDashboard = () => {
           <div className="flex gap-2">
             <Button
               variant="secondary"
-              size="small"
               onClick={handleNavigateToMap}
             >
               🗺️ Map
             </Button>
             <Button
               variant="secondary"
-              size="small"
               onClick={fetchWeather}
               disabled={loading}
             >

@@ -123,7 +123,6 @@ export const MapPage = () => {
           <div className="flex items-center gap-3">
             <Button
               variant="secondary"
-              size="small"
               onClick={() => navigate('/dashboard')}
             >
               ← Back

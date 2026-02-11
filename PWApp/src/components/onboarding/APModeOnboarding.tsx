@@ -1,9 +1,7 @@
 import { useState, useEffect } from 'react';
-import { useI18n } from '../../hooks/useI18n';
 import { Card } from '../ui/Card';
 import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
-import { Loader } from '../ui/Loader';
 import type { WiFiCredentials, LocationInfo } from '../../types';
 
 interface APModeOnboardingProps {
@@ -19,7 +17,6 @@ const AP_IP = '192.168.4.1';
 const AP_PORT = 8080;
 
 export const APModeOnboarding = ({ onComplete, onBack }: APModeOnboardingProps) => {
-  const { t } = useI18n();
   const [step, setStep] = useState<APStep>('instructions');
   const [deviceId, setDeviceId] = useState<string>('');
   const [wifiSSID, setWifiSSID] = useState('');
