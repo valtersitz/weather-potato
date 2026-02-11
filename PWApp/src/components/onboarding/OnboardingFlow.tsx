@@ -7,7 +7,7 @@ import { ManualWiFiEntry } from './ManualWiFiEntry';
 import { LocationSetup } from './LocationSetup';
 import { ValidationScreen } from './ValidationScreen';
 import { SuccessScreen } from './SuccessScreen';
-import { APModeOnboarding } from './APModeOnboarding';
+import { APConnectionScreen } from './APConnectionScreen';
 import { loadPotatoConfig } from '../../services/localConnectionService';
 import { supportsWebBluetooth, isIOS } from '../../utils/platform';
 import { STORAGE_DEVICE_ID } from '../../utils/constants';
@@ -30,6 +30,7 @@ export const OnboardingFlow = () => {
   const [location, setLocation] = useState<LocationInfo | null>(null);
   const [potatoConfig, setPotatoConfig] = useState<PotatoConfig | null>(null);
   const [wifiMode, setWifiMode] = useState<'scan' | 'manual'>('scan');
+  const [isAPMode, setIsAPMode] = useState(false); // Track if we're using AP mode instead of BLE
 
   useEffect(() => {
     // Check if device is already configured
@@ -66,15 +67,18 @@ export const OnboardingFlow = () => {
     // iOS doesn't support Web Bluetooth in Safari/Chrome - use AP mode
     if (isIOS()) {
       console.log('iOS detected, using AP mode onboarding');
-      setStep('ap-mode');
+      setIsAPMode(true);
+      setStep('wifi-setup'); // Collect WiFi credentials FIRST (while on home WiFi)
       return;
     }
 
     // Check if Web Bluetooth is supported
     if (!supportsWebBluetooth()) {
       console.log('Web Bluetooth not supported, using AP mode');
-      setStep('ap-mode');
+      setIsAPMode(true);
+      setStep('wifi-setup'); // Collect WiFi credentials FIRST (while on home WiFi)
     } else {
+      setIsAPMode(false);
       setStep('ble-connect');
     }
   };
@@ -129,9 +133,18 @@ export const OnboardingFlow = () => {
   };
 
   const handleLocationSet = (locationInfo: LocationInfo) => {
-    console.log('[OnboardingFlow] Location set, navigating to validation');
+    console.log('[OnboardingFlow] Location set');
     setLocation(locationInfo);
-    setStep('validation');
+
+    // If AP mode, go to AP connection screen
+    // If BLE mode, go to validation
+    if (isAPMode) {
+      console.log('[OnboardingFlow] AP mode: navigating to AP connection screen');
+      setStep('ap-mode'); // Reusing ap-mode step for connection instructions
+    } else {
+      console.log('[OnboardingFlow] BLE mode: navigating to validation');
+      setStep('validation');
+    }
   };
 
   const handleValidationSuccess = (config: PotatoConfig) => {
@@ -149,21 +162,15 @@ export const OnboardingFlow = () => {
     setStep('wifi-setup');
   };
 
-  const handleAPModeComplete = (
-    detectedDeviceId: string,
-    credentials: WiFiCredentials,
-    locationInfo: LocationInfo
-  ) => {
-    console.log('[OnboardingFlow] AP mode configuration complete');
+  const handleAPModeComplete = (detectedDeviceId: string) => {
+    console.log('[OnboardingFlow] AP mode configuration sent');
     console.log('[OnboardingFlow] Device ID:', detectedDeviceId);
 
     setDeviceId(detectedDeviceId);
     localStorage.setItem(STORAGE_DEVICE_ID, detectedDeviceId);
-    setWifiCredentials(credentials);
-    setLocation(locationInfo);
 
     // Since we sent config via AP, device should now connect to WiFi
-    // Navigate directly to validation (without BLE connection)
+    // Navigate to validation (without BLE connection)
     setStep('validation');
   };
 
@@ -185,10 +192,12 @@ export const OnboardingFlow = () => {
         />
       )}
 
-      {step === 'ap-mode' && (
-        <APModeOnboarding
+      {step === 'ap-mode' && wifiCredentials && location && (
+        <APConnectionScreen
+          wifiCredentials={wifiCredentials}
+          location={location}
           onComplete={handleAPModeComplete}
-          onBack={() => setStep('welcome')}
+          onBack={() => setStep('location-setup')}
         />
       )}
 
