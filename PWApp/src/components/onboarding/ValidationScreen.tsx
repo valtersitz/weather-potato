@@ -22,6 +22,7 @@ interface ValidationScreenProps {
   deviceId: string;
   onSuccess: (config: PotatoConfig) => void;
   onError: (error: string) => void;
+  onBack?: () => void;
 }
 
 export const ValidationScreen = ({
@@ -30,7 +31,8 @@ export const ValidationScreen = ({
   location,
   deviceId,
   onSuccess,
-  onError
+  onError,
+  onBack
 }: ValidationScreenProps) => {
   const { t } = useI18n();
   const [step, setStep] = useState<'sending' | 'connecting' | 'validating' | 'finalizing'>('sending');
@@ -143,6 +145,16 @@ export const ValidationScreen = ({
   return (
     <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-primary-light to-secondary-light">
       <Card className="max-w-lg w-full">
+        {onBack && (
+          <Button
+            variant="ghost"
+            onClick={onBack}
+            className="mb-4"
+          >
+            ← Back (Cancel)
+          </Button>
+        )}
+
         <div className="text-center mb-8">
           <div className="text-6xl mb-4 animate-bounce-slow">⚙️</div>
           <h2 className="text-3xl font-bold mb-3 gradient-text">
