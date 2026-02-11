@@ -20,46 +20,76 @@ export const isBluetoothSupported = (): boolean => {
  * Request and connect to a Weather Potato device via BLE
  */
 export const connectBLE = async (expectedDeviceId: string): Promise<BLEConnection> => {
+  console.log('[BLE] Starting connection process...');
+  console.log('[BLE] Expected device ID:', expectedDeviceId || '(any)');
+
   if (!isBluetoothSupported()) {
+    console.error('[BLE] Bluetooth not supported');
     throw new Error('Bluetooth not supported');
   }
 
   try {
     // Request device with Weather Potato name prefix
+    console.log('[BLE] Requesting device with prefix:', BLE_DEVICE_NAME_PREFIX);
     const device = await navigator.bluetooth.requestDevice({
       filters: [{ namePrefix: BLE_DEVICE_NAME_PREFIX }],
       optionalServices: [BLE_SERVICE_UUID]
     });
 
-    // Verify device name matches expected device ID
-    if (device.name !== `${BLE_DEVICE_NAME_PREFIX}${expectedDeviceId}`) {
+    console.log('[BLE] Device selected:', device.name);
+
+    // Verify device name matches expected device ID (if provided)
+    if (expectedDeviceId && device.name !== `${BLE_DEVICE_NAME_PREFIX}${expectedDeviceId}`) {
+      console.error('[BLE] Wrong device selected:', device.name, 'expected:', `${BLE_DEVICE_NAME_PREFIX}${expectedDeviceId}`);
       throw new Error('wrong_device');
     }
 
     // Connect to GATT server
     if (!device.gatt) {
+      console.error('[BLE] GATT not available on device');
       throw new Error('GATT not available');
     }
 
+    console.log('[BLE] Connecting to GATT server...');
     const server = await device.gatt.connect();
+    console.log('[BLE] GATT server connected');
 
     // Get primary service
+    console.log('[BLE] Getting primary service:', BLE_SERVICE_UUID);
     const service = await server.getPrimaryService(BLE_SERVICE_UUID);
+    console.log('[BLE] Primary service obtained');
 
     // Get all characteristics
+    console.log('[BLE] Getting device info characteristic...');
     const deviceInfoChar = await service.getCharacteristic(BLE_DEVICE_INFO_CHAR_UUID);
+    console.log('[BLE] Device info characteristic obtained');
+
+    console.log('[BLE] Getting WiFi config characteristic...');
     const wifiConfigChar = await service.getCharacteristic(BLE_WIFI_CONFIG_CHAR_UUID);
+    console.log('[BLE] WiFi config characteristic obtained');
+
+    console.log('[BLE] Getting GPS config characteristic...');
     const gpsConfigChar = await service.getCharacteristic(BLE_GPS_CONFIG_CHAR_UUID);
+    console.log('[BLE] GPS config characteristic obtained');
+
+    console.log('[BLE] Getting status characteristic...');
     const statusChar = await service.getCharacteristic(BLE_STATUS_CHAR_UUID);
+    console.log('[BLE] Status characteristic obtained');
 
     // Read and validate device info
+    console.log('[BLE] Reading device info...');
     const deviceInfoData = await deviceInfoChar.readValue();
-    const deviceInfo = decodeDeviceInfo(deviceInfoData);
+    console.log('[BLE] Device info data received, length:', deviceInfoData.byteLength);
 
-    if (deviceInfo.deviceId !== expectedDeviceId) {
+    const deviceInfo = decodeDeviceInfo(deviceInfoData);
+    console.log('[BLE] Device info decoded:', deviceInfo);
+
+    if (expectedDeviceId && deviceInfo.deviceId !== expectedDeviceId) {
+      console.error('[BLE] Device ID mismatch:', deviceInfo.deviceId, 'vs', expectedDeviceId);
       throw new Error('device_mismatch');
     }
 
+    console.log('[BLE] Connection successful!');
     return {
       device,
       characteristics: {
@@ -70,7 +100,12 @@ export const connectBLE = async (expectedDeviceId: string): Promise<BLEConnectio
       }
     };
   } catch (error) {
+    console.error('[BLE] Connection error:', error);
     if (error instanceof Error) {
+      console.error('[BLE] Error name:', error.name);
+      console.error('[BLE] Error message:', error.message);
+      console.error('[BLE] Error stack:', error.stack);
+
       if (error.message === 'wrong_device' || error.message === 'device_mismatch') {
         throw error;
       }
