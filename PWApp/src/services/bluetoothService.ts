@@ -172,32 +172,62 @@ export const waitForWiFiConnection = async (
   statusChar: BluetoothRemoteGATTCharacteristic,
   timeout: number = BLE_CONNECTION_TIMEOUT
 ): Promise<ESP32Status> => {
+  console.log('[BLE] Waiting for WiFi connection status...');
+  console.log('[BLE] Timeout set to:', timeout, 'ms');
+
   return new Promise((resolve, reject) => {
     const timeoutId = setTimeout(() => {
-      statusChar.stopNotifications();
+      console.error('[BLE] ⏰ Timeout waiting for WiFi connection status!');
+      statusChar.stopNotifications().catch(() => {});
       reject(new Error('timeout'));
     }, timeout);
 
     const handleStatusChange = (event: Event) => {
       const target = event.target as unknown as BluetoothRemoteGATTCharacteristic;
       const decoder = new TextDecoder();
-      const data: ESP32Status = JSON.parse(decoder.decode(target.value!));
+      const rawData = decoder.decode(target.value!);
 
-      if (data.status === 'wifi_connected') {
-        clearTimeout(timeoutId);
-        statusChar.stopNotifications();
-        statusChar.removeEventListener('characteristicvaluechanged', handleStatusChange);
-        resolve(data);
-      } else if (data.status === 'wifi_failed') {
-        clearTimeout(timeoutId);
-        statusChar.stopNotifications();
-        statusChar.removeEventListener('characteristicvaluechanged', handleStatusChange);
-        reject(new Error(data.message || 'WiFi connection failed'));
+      console.log('[BLE] 📢 Status notification received!');
+      console.log('[BLE] Raw data:', rawData);
+
+      try {
+        const data: ESP32Status = JSON.parse(rawData);
+        console.log('[BLE] Parsed status:', data);
+
+        if (data.status === 'wifi_connected') {
+          console.log('[BLE] ✅ WiFi connected successfully!');
+          console.log('[BLE] IP:', data.local_ip);
+          console.log('[BLE] Hostname:', data.hostname);
+          clearTimeout(timeoutId);
+          statusChar.stopNotifications().catch(() => {});
+          statusChar.removeEventListener('characteristicvaluechanged', handleStatusChange);
+          resolve(data);
+        } else if (data.status === 'wifi_failed') {
+          console.error('[BLE] ❌ WiFi connection failed:', data.message);
+          clearTimeout(timeoutId);
+          statusChar.stopNotifications().catch(() => {});
+          statusChar.removeEventListener('characteristicvaluechanged', handleStatusChange);
+          reject(new Error(data.message || 'WiFi connection failed'));
+        } else {
+          console.log('[BLE] Status update:', data.status, data.message || '');
+        }
+      } catch (error) {
+        console.error('[BLE] Failed to parse status JSON:', error);
+        console.error('[BLE] Raw data was:', rawData);
       }
     };
 
+    console.log('[BLE] Adding event listener for status changes...');
     statusChar.addEventListener('characteristicvaluechanged', handleStatusChange);
-    statusChar.startNotifications();
+
+    console.log('[BLE] Starting notifications...');
+    statusChar.startNotifications().then(() => {
+      console.log('[BLE] Notifications started successfully');
+    }).catch((error) => {
+      console.error('[BLE] Failed to start notifications:', error);
+      clearTimeout(timeoutId);
+      reject(error);
+    });
   });
 };
 
