@@ -7,7 +7,6 @@ import { Modal } from '../ui/Modal';
 import {
   sendWiFiCredentials,
   sendGPSCoordinates,
-  disableBLE,
   disconnectBLE
 } from '../../services/bluetoothService';
 import { pollDeviceHTTP, validateLocalConnection, savePotatoConfig } from '../../services/localConnectionService';
