@@ -10,9 +10,10 @@ interface BLEConnectionProps {
   deviceId: string;
   onConnected: (connection: BLEConnection) => void;
   onSkip: () => void;
+  onBack?: () => void;
 }
 
-export const BLEConnectionComponent = ({ deviceId, onConnected, onSkip }: BLEConnectionProps) => {
+export const BLEConnectionComponent = ({ deviceId, onConnected, onSkip, onBack }: BLEConnectionProps) => {
   const { t } = useI18n();
   const [status, setStatus] = useState<'idle' | 'connecting' | 'error'>('idle');
   const [errorMessage, setErrorMessage] = useState<string>('');
@@ -55,6 +56,16 @@ export const BLEConnectionComponent = ({ deviceId, onConnected, onSkip }: BLECon
           />
         ) : (
           <>
+            {onBack && (
+              <Button
+                variant="ghost"
+                onClick={onBack}
+                className="mb-4"
+              >
+                ← Back
+              </Button>
+            )}
+
             <div className="text-center mb-8">
               <div className="text-6xl mb-4">📡</div>
               <h2 className="text-3xl font-bold mb-3 gradient-text">

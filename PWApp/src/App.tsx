@@ -3,13 +3,12 @@ import { WelcomeScreen } from './components/onboarding/WelcomeScreen';
 import { BLEConnectionComponent } from './components/onboarding/BLEConnection';
 import { WiFiQRScanner } from './components/onboarding/WiFiQRScanner';
 import { ManualWiFiEntry } from './components/onboarding/ManualWiFiEntry';
-import { AndroidWiFiShareGuide } from './components/onboarding/AndroidWiFiShareGuide';
 import { LocationSetup } from './components/onboarding/LocationSetup';
 import { ValidationScreen } from './components/onboarding/ValidationScreen';
 import { SuccessScreen } from './components/onboarding/SuccessScreen';
 import { loadPotatoConfig } from './services/localConnectionService';
-import { retrieveSharedWiFi } from './services/wifiShareService';
-import { macToDeviceId, isMobile } from './utils/helpers';
+import { macToDeviceId } from './utils/helpers';
+import { supportsWebBluetooth } from './utils/platform';
 import { STORAGE_DEVICE_ID } from './utils/constants';
 import type {
   OnboardingStep,
@@ -26,19 +25,9 @@ function App() {
   const [wifiCredentials, setWifiCredentials] = useState<WiFiCredentials | null>(null);
   const [location, setLocation] = useState<LocationInfo | null>(null);
   const [potatoConfig, setPotatoConfig] = useState<PotatoConfig | null>(null);
-  const [wifiMode, setWifiMode] = useState<'share' | 'scan' | 'manual'>('share');
+  const [wifiMode, setWifiMode] = useState<'scan' | 'manual'>('scan');
 
   useEffect(() => {
-    // Check for shared WiFi credentials (from Android share)
-    const sharedWiFi = retrieveSharedWiFi();
-    if (sharedWiFi) {
-      console.log('Found shared WiFi credentials:', sharedWiFi.ssid);
-      setWifiCredentials(sharedWiFi);
-      // If we have WiFi credentials, skip to location setup
-      setStep('location-setup');
-      return;
-    }
-
     // Check if device is already configured
     const existingConfig = loadPotatoConfig();
     if (existingConfig && existingConfig.setup_complete) {
@@ -70,7 +59,13 @@ function App() {
   }, []);
 
   const handleStart = () => {
-    setStep('ble-connect');
+    // Skip BLE if not supported (iOS, old Android)
+    if (!supportsWebBluetooth()) {
+      console.log('Web Bluetooth not supported, skipping to WiFi setup');
+      setStep('wifi-setup');
+    } else {
+      setStep('ble-connect');
+    }
   };
 
   const handleBLEConnected = (connection: BLEConnection) => {
@@ -88,27 +83,24 @@ function App() {
     setStep('location-setup');
   };
 
-  const handleShareGuideComplete = () => {
-    // Check if WiFi was shared
-    const sharedWiFi = retrieveSharedWiFi();
-    if (sharedWiFi) {
-      setWifiCredentials(sharedWiFi);
-      setStep('location-setup');
-    } else {
-      // No share received, move to QR scan
-      setWifiMode('scan');
-    }
-  };
-
-  const handleSkipShare = () => {
-    setWifiMode('scan');
-  };
-
   const handleManualWiFiEntry = () => {
     setWifiMode('manual');
   };
 
   const handleBackToScan = () => {
+    setWifiMode('scan');
+  };
+
+  const handleBackToBLE = () => {
+    if (supportsWebBluetooth()) {
+      setStep('ble-connect');
+    } else {
+      setStep('welcome');
+    }
+  };
+
+  const handleBackToWiFi = () => {
+    setStep('wifi-setup');
     setWifiMode('scan');
   };
 
@@ -144,13 +136,7 @@ function App() {
           deviceId={deviceId}
           onConnected={handleBLEConnected}
           onSkip={handleSkipBLE}
-        />
-      )}
-
-      {step === 'wifi-setup' && wifiMode === 'share' && isMobile() && (
-        <AndroidWiFiShareGuide
-          onContinue={handleShareGuideComplete}
-          onSkip={handleSkipShare}
+          onBack={() => setStep('welcome')}
         />
       )}
 
@@ -158,6 +144,7 @@ function App() {
         <WiFiQRScanner
           onScanned={handleWiFiScanned}
           onManualEntry={handleManualWiFiEntry}
+          onBack={handleBackToBLE}
         />
       )}
 
@@ -171,6 +158,7 @@ function App() {
       {step === 'location-setup' && (
         <LocationSetup
           onLocationSet={handleLocationSet}
+          onBack={handleBackToWiFi}
         />
       )}
 
@@ -182,6 +170,7 @@ function App() {
           deviceId={deviceId}
           onSuccess={handleValidationSuccess}
           onError={handleValidationError}
+          onBack={handleBackToWiFi}
         />
       )}
 

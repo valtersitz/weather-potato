@@ -9,9 +9,10 @@ import type { LocationInfo } from '../../types';
 
 interface LocationSetupProps {
   onLocationSet: (location: LocationInfo) => void;
+  onBack?: () => void;
 }
 
-export const LocationSetup = ({ onLocationSet }: LocationSetupProps) => {
+export const LocationSetup = ({ onLocationSet, onBack }: LocationSetupProps) => {
   const { t } = useI18n();
   const [status, setStatus] = useState<'idle' | 'detecting' | 'manual' | 'error'>('idle');
   const [locationInfo, setLocationInfo] = useState<LocationInfo | null>(null);
@@ -54,6 +55,16 @@ export const LocationSetup = ({ onLocationSet }: LocationSetupProps) => {
   return (
     <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-secondary-light to-primary-light">
       <Card className="max-w-lg w-full">
+        {onBack && status !== 'detecting' && (
+          <Button
+            variant="ghost"
+            onClick={onBack}
+            className="mb-4"
+          >
+            ← Back
+          </Button>
+        )}
+
         {status === 'detecting' ? (
           <Loader
             message={t('location.detecting')}
