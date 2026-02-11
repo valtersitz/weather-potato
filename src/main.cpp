@@ -202,6 +202,24 @@ class StatusCallback : public BLECharacteristicCallbacks {
   }
 };
 
+// BLE Server Callbacks - Handle connections
+class ServerCallbacks : public BLEServerCallbacks {
+  void onConnect(BLEServer* pServer) {
+    Serial.println("BLE client connected");
+    // Don't stop advertising - allow reconnections
+  }
+
+  void onDisconnect(BLEServer* pServer) {
+    Serial.println("BLE client disconnected");
+    // Restart advertising so other devices can connect
+    if (bleEnabled) {
+      delay(500); // Give some time before restarting
+      BLEDevice::startAdvertising();
+      Serial.println("BLE advertising restarted");
+    }
+  }
+};
+
 // ============================================================================
 // BLE SETUP
 // ============================================================================
@@ -218,6 +236,9 @@ void setupBLE() {
 
   // Create BLE Server
   bleServer = BLEDevice::createServer();
+
+  // Set server callbacks to handle connections/disconnections
+  bleServer->setCallbacks(new ServerCallbacks());
 
   // Create BLE Service
   BLEService *pService = bleServer->createService(BLE_SERVICE_UUID);
