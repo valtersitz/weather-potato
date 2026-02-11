@@ -232,6 +232,57 @@ export const waitForWiFiConnection = async (
 };
 
 /**
+ * Poll WiFi connection status by reading BLE characteristic
+ * More reliable than notifications, works even from HTTPS pages
+ */
+export const pollWiFiStatusViaBLE = async (
+  statusChar: BluetoothRemoteGATTCharacteristic,
+  timeout: number = 60000,
+  interval: number = 2000
+): Promise<ESP32Status> => {
+  console.log('[BLE] Polling WiFi status via BLE reads...');
+  console.log('[BLE] Timeout:', timeout, 'ms, Interval:', interval, 'ms');
+
+  const startTime = Date.now();
+
+  while (Date.now() - startTime < timeout) {
+    try {
+      console.log('[BLE] Reading status characteristic...');
+      const value = await statusChar.readValue();
+      const decoder = new TextDecoder();
+      const rawData = decoder.decode(value);
+
+      console.log('[BLE] Status data:', rawData);
+
+      try {
+        const data: ESP32Status = JSON.parse(rawData);
+        console.log('[BLE] Parsed status:', data);
+
+        if (data.status === 'wifi_connected') {
+          console.log('[BLE] ✅ WiFi connected! IP:', data.local_ip);
+          return data;
+        } else if (data.status === 'wifi_failed') {
+          console.error('[BLE] ❌ WiFi connection failed:', data.message);
+          throw new Error(data.message || 'WiFi connection failed');
+        } else {
+          console.log('[BLE] Status:', data.status, '-', data.message || 'waiting...');
+        }
+      } catch (parseError) {
+        console.warn('[BLE] Failed to parse status JSON:', parseError);
+      }
+    } catch (error) {
+      console.warn('[BLE] Error reading status:', error);
+    }
+
+    // Wait before next poll
+    await new Promise(resolve => setTimeout(resolve, interval));
+  }
+
+  console.error('[BLE] ⏰ Polling timeout! WiFi did not connect in', timeout, 'ms');
+  throw new Error('WiFi connection timeout');
+};
+
+/**
  * Send command to disable BLE on ESP32
  */
 export const disableBLE = async (

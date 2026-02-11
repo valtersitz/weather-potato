@@ -7,9 +7,10 @@ import { Modal } from '../ui/Modal';
 import {
   sendWiFiCredentials,
   sendGPSCoordinates,
+  pollWiFiStatusViaBLE,
   disconnectBLE
 } from '../../services/bluetoothService';
-import { pollDeviceHTTP, validateLocalConnection, savePotatoConfig } from '../../services/localConnectionService';
+import { savePotatoConfig } from '../../services/localConnectionService';
 import type { BLEConnection, WiFiCredentials, LocationInfo, PotatoConfig } from '../../types';
 import { MDNS_HOSTNAME, DEFAULT_PORT } from '../../utils/constants';
 
@@ -66,38 +67,29 @@ export const ValidationScreen = ({
           location
         );
 
-        // Step 3: Poll device via HTTP (more reliable than BLE notification)
-        // Keep BLE active as backup during polling
+        // Step 3: Poll WiFi status via BLE (works from HTTPS pages)
         setStep('connecting');
         setProgress(60);
-        console.log('[Validation] Starting HTTP polling (BLE still active)...');
+        console.log('[Validation] Polling WiFi status via BLE...');
 
-        const deviceInfo = await pollDeviceHTTP(
-          MDNS_HOSTNAME,
-          DEFAULT_PORT,
-          deviceId,
+        const wifiStatus = await pollWiFiStatusViaBLE(
+          bleConnection.characteristics.statusChar,
           60000, // 60 second timeout
           2000   // Poll every 2 seconds
         );
 
-        console.log('[Validation] Device connected via HTTP:', deviceInfo);
+        console.log('[Validation] WiFi connected! Status:', wifiStatus);
 
-        // Step 4: Validate local connection
+        // Step 4: Prepare endpoint
         setStep('validating');
         setProgress(80);
-        console.log('[Validation] Validating local connection...');
-        const validation = await validateLocalConnection(
-          deviceInfo.hostname,
-          deviceInfo.ip,
-          deviceInfo.port,
-          deviceId
-        );
+        console.log('[Validation] Preparing device configuration...');
 
-        if (!validation.success) {
-          throw new Error('Local connection validation failed');
-        }
+        const deviceIp = wifiStatus.local_ip || '';
+        const deviceHostname = wifiStatus.hostname || MDNS_HOSTNAME;
+        const endpoint = deviceIp ? `http://${deviceIp}:${DEFAULT_PORT}` : `http://${deviceHostname}:${DEFAULT_PORT}`;
 
-        console.log('[Validation] Validation successful:', validation);
+        console.log('[Validation] Device endpoint:', endpoint);
 
         // Step 5: Disconnect BLE (no longer needed)
         setStep('finalizing');
@@ -109,14 +101,15 @@ export const ValidationScreen = ({
         setProgress(100);
         const config: PotatoConfig = {
           device_id: deviceId,
-          endpoint: validation.endpoint!,
-          hostname: deviceInfo.hostname,
-          ip: deviceInfo.ip,
-          port: deviceInfo.port,
+          endpoint: endpoint,
+          hostname: deviceHostname,
+          ip: deviceIp,
+          port: DEFAULT_PORT,
           last_seen: Date.now(),
           setup_complete: true
         };
 
+        console.log('[Validation] Saving configuration:', config);
         savePotatoConfig(config);
         onSuccess(config);
       } else {
