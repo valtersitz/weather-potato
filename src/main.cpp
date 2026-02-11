@@ -62,6 +62,7 @@ bool wifiConfigReceived = false;
 bool gpsConfigReceived = false;
 
 // HTTP Server (port 8080 for PWA compatibility)
+// Note: Using HTTP with CORS headers to allow HTTPS PWA access
 WebServer server(8080);
 
 // NeoPixel
@@ -98,8 +99,11 @@ void parseWeatherSymbol(JsonDocument &doc, int &code, int &temperature);
 void playToneIfNecessary(String weatherCondition);
 void setLEDRGB(int temperature);
 void interpretWeatherSymbol(int code, int temperature);
+void addCORSHeaders();
+void handleCORSPreflight();
 void handleRootPage();
 void handleHealthEndpoint();
+void handleWeatherEndpoint();
 void handleConfigSubmission();
 void handleLocationSubmission();
 void handleOTAPage();
@@ -339,14 +343,19 @@ void connectToWiFiViaBLE() {
 
     // Setup HTTP server endpoints
     server.on("/", HTTP_GET, handleRootPage);
-    server.on("/health", HTTP_GET, handleHealthEndpoint);  // NEW: For PWA validation
+    server.on("/health", HTTP_GET, handleHealthEndpoint);  // For PWA validation
+    server.on("/weather", HTTP_GET, handleWeatherEndpoint);  // For PWA weather display
     server.on("/config", HTTP_POST, handleConfigSubmission);
     server.on("/location", HTTP_POST, handleLocationSubmission);
     server.on("/ota", HTTP_GET, handleOTAPage);
     server.on("/otaUpdate", HTTP_POST, handleOTAUpdate);
 
+    // Handle CORS preflight requests
+    server.on("/health", HTTP_OPTIONS, handleCORSPreflight);
+    server.on("/weather", HTTP_OPTIONS, handleCORSPreflight);
+
     server.begin();
-    Serial.println("HTTP server started on port 8080");
+    Serial.println("HTTP server started on port 8080 with CORS enabled");
 
     // Notify success via BLE
     if (bleEnabled && statusCharacteristic) {
@@ -383,8 +392,23 @@ void connectToWiFiViaBLE() {
 // HTTP ENDPOINTS
 // ============================================================================
 
-// NEW: Health endpoint for PWA validation
+// Helper: Add CORS headers to allow HTTPS PWA access
+void addCORSHeaders() {
+  server.sendHeader("Access-Control-Allow-Origin", "*");
+  server.sendHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  server.sendHeader("Access-Control-Allow-Headers", "Content-Type");
+}
+
+// Handle CORS preflight requests
+void handleCORSPreflight() {
+  addCORSHeaders();
+  server.send(204);  // No content
+}
+
+// Health endpoint for PWA validation
 void handleHealthEndpoint() {
+  addCORSHeaders();  // Add CORS for HTTPS PWA access
+
   String response = "{";
   response += "\"device_id\":\"" + deviceId + "\",";
   response += "\"status\":\"ready\",";
@@ -394,6 +418,26 @@ void handleHealthEndpoint() {
 
   server.send(200, "application/json", response);
   Serial.println("Health check request handled");
+}
+
+// Weather endpoint for PWA display
+void handleWeatherEndpoint() {
+  addCORSHeaders();  // Add CORS for HTTPS PWA access
+
+  String response = "{";
+  response += "\"device_id\":\"" + deviceId + "\",";
+  response += "\"condition\":\"" + lastWeatherCondition + "\",";
+  response += "\"temperature\":" + String(lastTemperature) + ",";
+  response += "\"symbol\":" + String(weatherSymbol) + ",";
+  response += "\"location\":{";
+  response += "\"latitude\":" + String(latitude, 4) + ",";
+  response += "\"longitude\":" + String(longitude, 4);
+  response += "},";
+  response += "\"timestamp\":" + String(millis());
+  response += "}";
+
+  server.send(200, "application/json", response);
+  Serial.println("Weather data request handled");
 }
 
 void handleRootPage() {
