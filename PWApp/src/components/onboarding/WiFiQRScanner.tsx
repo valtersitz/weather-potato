@@ -20,11 +20,19 @@ export const WiFiQRScanner = ({ onScanned, onManualEntry, onBack }: WiFiQRScanne
   const [showHelp, setShowHelp] = useState(false);
   const [error, setError] = useState<string>('');
   const scannerRef = useRef<Html5Qrcode | null>(null);
+  const hasScannedRef = useRef(false); // Prevent multiple scans
 
   useEffect(() => {
     return () => {
+      // Cleanup scanner on unmount
       if (scannerRef.current) {
-        scannerRef.current.stop().catch(console.error);
+        try {
+          scannerRef.current.stop().catch(() => {
+            // Ignore errors during cleanup
+          });
+        } catch {
+          // Ignore errors during cleanup
+        }
       }
     };
   }, []);
@@ -56,24 +64,34 @@ export const WiFiQRScanner = ({ onScanned, onManualEntry, onBack }: WiFiQRScanne
           aspectRatio: 1.0
         },
         (decodedText) => {
-          console.log('QR Code detected:', decodedText);
+          // Prevent processing multiple scans
+          if (hasScannedRef.current) {
+            console.log('[WiFiQRScanner] Already scanned, ignoring...');
+            return;
+          }
+
+          console.log('[WiFiQRScanner] QR Code detected:', decodedText);
           const wifiData = parseWiFiQR(decodedText);
-          console.log('Parsed WiFi data:', wifiData);
+          console.log('[WiFiQRScanner] Parsed WiFi data:', wifiData);
 
           if (wifiData) {
-            console.log('Valid WiFi QR code found, stopping scanner...');
-            scanner.stop().then(() => {
-              setScanning(false);
-              onScanned(wifiData);
-            }).catch((err) => {
-              console.error('Error stopping scanner:', err);
-              setScanning(false);
-              onScanned(wifiData);
+            console.log('[WiFiQRScanner] Valid WiFi QR code found');
+            hasScannedRef.current = true; // Mark as scanned
+
+            // Stop scanner in background (don't wait for it)
+            scanner.stop().catch((err) => {
+              console.warn('[WiFiQRScanner] Error stopping scanner (safe to ignore):', err);
             });
+
+            // Immediately proceed with navigation
+            setScanning(false);
+            scannerRef.current = null;
+            console.log('[WiFiQRScanner] Calling onScanned callback...');
+            onScanned(wifiData);
           } else {
-            console.warn('QR code is not a valid WiFi format:', decodedText);
+            console.warn('[WiFiQRScanner] QR code is not a valid WiFi format:', decodedText);
             setError('Invalid WiFi QR code. Please scan a WiFi QR code from your router.');
-            scanner.stop().then(() => setScanning(false));
+            scanner.stop().catch(() => {}).then(() => setScanning(false));
           }
         },
         () => {
@@ -83,8 +101,8 @@ export const WiFiQRScanner = ({ onScanned, onManualEntry, onBack }: WiFiQRScanne
 
       // Auto-timeout after 60 seconds
       setTimeout(() => {
-        if (scannerRef.current) {
-          scannerRef.current.stop().then(() => {
+        if (scannerRef.current && !hasScannedRef.current) {
+          scannerRef.current.stop().catch(() => {}).then(() => {
             setScanning(false);
             setError(t('errors.timeout'));
           });
@@ -109,7 +127,7 @@ export const WiFiQRScanner = ({ onScanned, onManualEntry, onBack }: WiFiQRScanne
 
   const stopScanning = () => {
     if (scannerRef.current) {
-      scannerRef.current.stop().then(() => {
+      scannerRef.current.stop().catch(() => {}).then(() => {
         setScanning(false);
         scannerRef.current = null;
       });
