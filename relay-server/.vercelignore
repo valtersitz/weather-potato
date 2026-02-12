@@ -1,0 +1,8 @@
+node_modules
+npm-debug.log
+.DS_Store
+server.js
+start-local.sh
+Dockerfile
+DEPLOYMENT.md
+VERCEL_DEPLOYMENT.md
