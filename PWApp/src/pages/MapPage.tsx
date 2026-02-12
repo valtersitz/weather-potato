@@ -64,7 +64,7 @@ export const MapPage = () => {
   const [searchResults, setSearchResults] = useState<GeocodingResult[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [showResults, setShowResults] = useState(false);
-  const searchTimeoutRef = useRef<NodeJS.Timeout>();
+  const searchTimeoutRef = useRef<number>();
 
   useEffect(() => {
     const savedConfig = loadPotatoConfig();
