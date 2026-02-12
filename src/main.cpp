@@ -494,6 +494,12 @@ void handleRootPage() {
 
 // Setup page for iOS fallback (HTTP page to avoid mixed content blocking)
 void handleSetupPage() {
+  Serial.println("========================================");
+  Serial.println("📡 INCOMING REQUEST: /setup");
+  Serial.print("   Client IP: ");
+  Serial.println(server.client().remoteIP());
+  Serial.print("   Query string: ");
+  Serial.println(server.uri());
   String html = R"rawliteral(
 <!DOCTYPE html>
 <html>
@@ -657,10 +663,21 @@ void handleSetupPage() {
 )rawliteral";
 
   server.send(200, "text/html", html);
+  Serial.println("✅ /setup responded with HTML page");
+  Serial.println("========================================");
 }
 
 // Device info endpoint for AP mode onboarding
 void handleDeviceInfo() {
+  Serial.println("========================================");
+  Serial.println("📡 INCOMING REQUEST: /device-info");
+  Serial.print("   Method: ");
+  Serial.println(server.method() == HTTP_GET ? "GET" : "OTHER");
+  Serial.print("   Client IP: ");
+  Serial.println(server.client().remoteIP());
+  Serial.print("   Headers: ");
+  Serial.println(server.headers());
+
   addCORSHeaders();  // Add CORS for PWA access
 
   String response = "{";
@@ -672,15 +689,27 @@ void handleDeviceInfo() {
   response += "\"mode\":\"AP\"";
   response += "}";
 
+  Serial.print("   Response: ");
+  Serial.println(response);
+
   server.send(200, "application/json", response);
-  Serial.println("Device info request handled (AP mode)");
+  Serial.println("✅ /device-info responded with 200 OK");
+  Serial.println("========================================");
 }
 
 void handleConfigSubmission() {
+  Serial.println("========================================");
+  Serial.println("📡 INCOMING REQUEST: /config");
+  Serial.print("   Method: POST | Client IP: ");
+  Serial.println(server.client().remoteIP());
+
   addCORSHeaders();  // Add CORS for PWA access
 
   // Parse JSON body
   String body = server.arg("plain");
+  Serial.print("   Request body: ");
+  Serial.println(body);
+
   StaticJsonDocument<300> doc;
   DeserializationError error = deserializeJson(doc, body);
 
@@ -712,15 +741,27 @@ void handleConfigSubmission() {
     response += "\"message\":\"Connecting to WiFi...\",";
     response += "\"ssid\":\"" + wifiSSID + "\"";
     response += "}";
+
+    Serial.print("   ✅ Sending response: ");
+    Serial.println(response);
+
     server.send(200, "application/json", response);
+
+    Serial.println("✅ /config responded with 200 OK");
+    Serial.println("🔌 Attempting to connect to WiFi...");
+    Serial.println("========================================");
 
     // Attempt WiFi connection
     delay(1000);
     WiFi.disconnect();
     WiFi.begin(wifiSSID.c_str(), wifiPassword.c_str());
+
+    Serial.println("📶 WiFi connection initiated");
   } else {
+    Serial.println("   ❌ ERROR: Missing ssid or password in request");
     String response = "{\"success\":false,\"error\":\"Missing ssid or password\"}";
     server.send(400, "application/json", response);
+    Serial.println("========================================");
   }
 }
 

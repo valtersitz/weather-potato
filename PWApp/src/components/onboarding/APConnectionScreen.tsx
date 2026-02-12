@@ -52,14 +52,23 @@ export const APConnectionScreen = ({
   const handleTestConnectivity = async () => {
     setConnectivityCheck('checking');
     setError('');
+    setShowMixedContentFallback(false); // Reset fallback
 
     try {
+      console.log('==========================================');
       console.log('[AP] Testing connectivity to Weather Potato AP...');
+      console.log('[AP] Target URL:', `http://${AP_IP}:${AP_PORT}/device-info`);
+      console.log('[AP] Current page:', window.location.href);
+      console.log('[AP] Is HTTPS?', window.location.protocol === 'https:');
+      console.log('==========================================');
 
       const response = await fetch(`http://${AP_IP}:${AP_PORT}/device-info`, {
         method: 'GET',
+        mode: 'cors',
         signal: AbortSignal.timeout(3000)
       });
+
+      console.log('[AP] Response received:', response.status);
 
       if (response.ok) {
         const data = await response.json();
@@ -70,10 +79,29 @@ export const APConnectionScreen = ({
         throw new Error(`HTTP ${response.status}`);
       }
     } catch (err) {
-      console.error('[AP] ❌ Connectivity test FAILED:', err);
+      console.error('==========================================');
+      console.error('[AP] ❌ Connectivity test FAILED');
+      console.error('[AP] Error:', err);
+      console.error('[AP] Error type:', typeof err);
+      console.error('[AP] Error name:', err instanceof Error ? err.name : 'N/A');
+      console.error('[AP] Is TypeError?', err instanceof TypeError);
+      console.error('==========================================');
+
       setConnectivityCheck('failed');
+
+      // Show fallback on ANY error (likely mixed content blocking on iOS)
+      setShowMixedContentFallback(true);
+
+      let errorMsg = err instanceof Error ? err.message : 'Unknown';
+      if (err instanceof TypeError) {
+        errorMsg = 'Network error (Mixed Content blocking detected)';
+      }
+
       setError(
-        `Cannot reach Weather Potato AP. Make sure you're connected to "${AP_SSID}" network. Error: ${err instanceof Error ? err.message : 'Unknown'}`
+        `Cannot reach Weather Potato AP.\n\n` +
+        `Error: ${errorMsg}\n\n` +
+        `Make sure you're connected to "${AP_SSID}".\n\n` +
+        `If connected, iOS may be blocking the request. Use fallback below:`
       );
     }
   };
@@ -134,35 +162,47 @@ export const APConnectionScreen = ({
       // Success!
       onComplete(deviceId);
     } catch (err) {
-      console.error('[AP] Error submitting configuration:', err);
+      console.error('==========================================');
+      console.error('[AP] ERROR CAUGHT!');
+      console.error('[AP] Error object:', err);
+      console.error('[AP] Error type:', typeof err);
+      console.error('[AP] Error constructor:', err?.constructor?.name);
+      console.error('[AP] Is TypeError?', err instanceof TypeError);
+      console.error('[AP] Is Error?', err instanceof Error);
+      console.error('==========================================');
 
       // Detailed error logging
       let errorMessage = 'Unknown error';
       let errorType = 'UNKNOWN';
 
       if (err instanceof TypeError) {
-        errorType = 'NETWORK_ERROR';
-        errorMessage = 'Network error - likely Mixed Content blocking (HTTPS → HTTP)';
-        console.error('[AP] Mixed content blocking detected. iOS blocks HTTP requests from HTTPS pages.');
-        setShowMixedContentFallback(true); // Show fallback option
+        errorType = 'NETWORK_ERROR / MIXED_CONTENT';
+        errorMessage = 'Network error - Mixed Content blocking (HTTPS → HTTP)';
+        console.error('[AP] ✋ Mixed content blocking detected!');
       } else if (err instanceof Error) {
         errorMessage = err.message;
         if (err.name === 'AbortError') {
           errorType = 'TIMEOUT';
           errorMessage = 'Request timed out - device not reachable';
+        } else {
+          errorType = err.name || 'ERROR';
         }
       }
 
-      console.error('[AP] Error type:', errorType);
-      console.error('[AP] Error message:', errorMessage);
+      console.error('[AP] Final error type:', errorType);
+      console.error('[AP] Final error message:', errorMessage);
+
+      // ALWAYS show fallback on any error (iOS likely blocks the request)
+      setShowMixedContentFallback(true);
+      console.log('[AP] Fallback button should now be visible');
 
       setError(
-        `Failed to send configuration: ${errorMessage}\n\n` +
-        `Debugging info:\n` +
-        `• Error type: ${errorType}\n` +
-        `• Connected to: ${AP_SSID}?\n` +
-        `• Page refreshed? (should be NO)\n` +
-        `• Check browser console for details`
+        `❌ ${errorMessage}\n\n` +
+        `Debug Info:\n` +
+        `• Error: ${errorType}\n` +
+        `• Connected to ${AP_SSID}?\n` +
+        `• Don't refresh page!\n\n` +
+        `Try the fallback method below:`
       );
       setSubmitting(false);
     }
@@ -269,6 +309,23 @@ export const APConnectionScreen = ({
             {connectivityCheck === 'failed' && error && (
               <div className="mb-4 p-3 bg-error/20 rounded-xl">
                 <p className="text-sm text-error">{error}</p>
+
+                {/* Fallback option for mixed content blocking */}
+                {showMixedContentFallback && (
+                  <div className="mt-3 pt-3 border-t border-error/30">
+                    <p className="text-xs text-gray-700 mb-2">
+                      <strong>🔧 Fallback Method:</strong> Your browser may be blocking HTTP requests.
+                      Skip the test and use the ESP32's setup page directly:
+                    </p>
+                    <Button
+                      variant="secondary"
+                      onClick={handleFallbackRedirect}
+                      className="w-full"
+                    >
+                      🚀 Open ESP32 Setup Page
+                    </Button>
+                  </div>
+                )}
               </div>
             )}
 
