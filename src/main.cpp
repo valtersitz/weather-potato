@@ -102,6 +102,7 @@ void interpretWeatherSymbol(int code, int temperature);
 void addCORSHeaders();
 void handleCORSPreflight();
 void handleRootPage();
+void handleSetupPage();
 void handleDeviceInfo();
 void handleHealthEndpoint();
 void handleWeatherEndpoint();
@@ -344,6 +345,7 @@ void connectToWiFiViaBLE() {
 
     // Setup HTTP server endpoints
     server.on("/", HTTP_GET, handleRootPage);
+    server.on("/setup", HTTP_GET, handleSetupPage);  // For iOS fallback (avoids mixed content blocking)
     server.on("/device-info", HTTP_GET, handleDeviceInfo);  // For AP mode onboarding
     server.on("/health", HTTP_GET, handleHealthEndpoint);  // For PWA validation
     server.on("/weather", HTTP_GET, handleWeatherEndpoint);  // For PWA weather display
@@ -486,6 +488,173 @@ void handleRootPage() {
   html.replace("%WEATHER%", lastWeatherCondition);
   html.replace("%TEMP%", String(lastTemperature));
   html.replace("%IP%", WiFi.localIP().toString());
+
+  server.send(200, "text/html", html);
+}
+
+// Setup page for iOS fallback (HTTP page to avoid mixed content blocking)
+void handleSetupPage() {
+  String html = R"rawliteral(
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Weather Potato Setup</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    .container {
+      background: white;
+      border-radius: 20px;
+      padding: 30px;
+      max-width: 500px;
+      width: 100%;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+    }
+    h1 { text-align: center; margin-bottom: 10px; color: #333; }
+    .potato { text-align: center; font-size: 60px; margin-bottom: 20px; }
+    .form-group { margin-bottom: 20px; }
+    label { display: block; font-weight: 600; margin-bottom: 5px; color: #555; }
+    input { width: 100%; padding: 12px; border: 2px solid #ddd; border-radius: 10px; font-size: 16px; }
+    input:focus { outline: none; border-color: #667eea; }
+    button {
+      width: 100%;
+      padding: 15px;
+      background: linear-gradient(135deg, #667eea, #764ba2);
+      color: white;
+      border: none;
+      border-radius: 10px;
+      font-size: 18px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: transform 0.2s;
+    }
+    button:hover { transform: scale(1.02); }
+    button:disabled { opacity: 0.6; cursor: not-allowed; }
+    .message {
+      padding: 15px;
+      border-radius: 10px;
+      margin-bottom: 20px;
+      display: none;
+    }
+    .success { background: #d4edda; color: #155724; display: block; }
+    .error { background: #f8d7da; color: #721c24; display: block; }
+    .info { background: #d1ecf1; color: #0c5460; }
+    small { color: #888; font-size: 12px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="potato">🥔</div>
+    <h1>Weather Potato Setup</h1>
+    <p style="text-align: center; color: #666; margin-bottom: 30px;">Configure your device</p>
+
+    <div id="message" class="message"></div>
+
+    <form id="configForm">
+      <div class="form-group">
+        <label>WiFi Network (SSID)</label>
+        <input type="text" id="ssid" required>
+      </div>
+
+      <div class="form-group">
+        <label>WiFi Password</label>
+        <input type="password" id="password" required>
+        <small>Your home WiFi password</small>
+      </div>
+
+      <div class="form-group">
+        <label>Latitude</label>
+        <input type="number" step="0.000001" id="latitude" required>
+      </div>
+
+      <div class="form-group">
+        <label>Longitude</label>
+        <input type="number" step="0.000001" id="longitude" required>
+      </div>
+
+      <button type="submit" id="submitBtn">Send Configuration</button>
+    </form>
+  </div>
+
+  <script>
+    // Auto-fill from URL parameters or localStorage
+    const params = new URLSearchParams(window.location.search);
+    const stored = localStorage.getItem('weatherPotato_pendingConfig');
+
+    if (params.has('ssid')) {
+      document.getElementById('ssid').value = params.get('ssid') || '';
+      document.getElementById('password').value = params.get('password') || '';
+      document.getElementById('latitude').value = params.get('lat') || '';
+      document.getElementById('longitude').value = params.get('lon') || '';
+    } else if (stored) {
+      try {
+        const data = JSON.parse(stored);
+        document.getElementById('ssid').value = data.ssid || '';
+        document.getElementById('password').value = data.password || '';
+        document.getElementById('latitude').value = data.latitude || '';
+        document.getElementById('longitude').value = data.longitude || '';
+      } catch (e) {}
+    }
+
+    document.getElementById('configForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+
+      const submitBtn = document.getElementById('submitBtn');
+      const message = document.getElementById('message');
+
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Sending...';
+      message.className = 'message';
+      message.style.display = 'none';
+
+      const config = {
+        ssid: document.getElementById('ssid').value,
+        password: document.getElementById('password').value,
+        latitude: parseFloat(document.getElementById('latitude').value),
+        longitude: parseFloat(document.getElementById('longitude').value)
+      };
+
+      try {
+        const response = await fetch('/config', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(config)
+        });
+
+        if (response.ok) {
+          message.className = 'message success';
+          message.textContent = '✅ Configuration sent! Weather Potato is connecting to your WiFi...';
+          message.style.display = 'block';
+          localStorage.removeItem('weatherPotato_pendingConfig');
+
+          setTimeout(() => {
+            message.textContent = '✅ Done! You can close this page and reconnect to your home WiFi.';
+          }, 3000);
+        } else {
+          throw new Error('HTTP ' + response.status);
+        }
+      } catch (error) {
+        message.className = 'message error';
+        message.textContent = '❌ Failed to send configuration: ' + error.message;
+        message.style.display = 'block';
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Send Configuration';
+      }
+    });
+  </script>
+</body>
+</html>
+)rawliteral";
 
   server.send(200, "text/html", html);
 }
@@ -732,6 +901,7 @@ void setup() {
       }
 
       server.on("/", HTTP_GET, handleRootPage);
+      server.on("/setup", HTTP_GET, handleSetupPage);
       server.on("/device-info", HTTP_GET, handleDeviceInfo);
       server.on("/health", HTTP_GET, handleHealthEndpoint);
       server.on("/weather", HTTP_GET, handleWeatherEndpoint);

@@ -26,6 +26,7 @@ export const APConnectionScreen = ({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [connectivityCheck, setConnectivityCheck] = useState<'checking' | 'success' | 'failed' | null>(null);
+  const [showMixedContentFallback, setShowMixedContentFallback] = useState(false);
 
   const handleCopyPassword = async () => {
     try {
@@ -83,10 +84,12 @@ export const APConnectionScreen = ({
 
     try {
       console.log('[AP] Fetching device info...');
+      console.log('[AP] Target:', `http://${AP_IP}:${AP_PORT}/device-info`);
 
       // First, get device ID
       const infoResponse = await fetch(`http://${AP_IP}:${AP_PORT}/device-info`, {
         method: 'GET',
+        mode: 'cors',
         signal: AbortSignal.timeout(5000)
       });
 
@@ -107,14 +110,19 @@ export const APConnectionScreen = ({
         longitude: location.longitude
       };
 
+      console.log('[AP] Config payload:', configData);
+
       const response = await fetch(`http://${AP_IP}:${AP_PORT}/config`, {
         method: 'POST',
+        mode: 'cors',
         headers: {
           'Content-Type': 'application/json'
         },
         body: JSON.stringify(configData),
         signal: AbortSignal.timeout(10000)
       });
+
+      console.log('[AP] Response status:', response.status);
 
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}: ${response.statusText}`);
@@ -127,12 +135,61 @@ export const APConnectionScreen = ({
       onComplete(deviceId);
     } catch (err) {
       console.error('[AP] Error submitting configuration:', err);
-      const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+
+      // Detailed error logging
+      let errorMessage = 'Unknown error';
+      let errorType = 'UNKNOWN';
+
+      if (err instanceof TypeError) {
+        errorType = 'NETWORK_ERROR';
+        errorMessage = 'Network error - likely Mixed Content blocking (HTTPS → HTTP)';
+        console.error('[AP] Mixed content blocking detected. iOS blocks HTTP requests from HTTPS pages.');
+        setShowMixedContentFallback(true); // Show fallback option
+      } else if (err instanceof Error) {
+        errorMessage = err.message;
+        if (err.name === 'AbortError') {
+          errorType = 'TIMEOUT';
+          errorMessage = 'Request timed out - device not reachable';
+        }
+      }
+
+      console.error('[AP] Error type:', errorType);
+      console.error('[AP] Error message:', errorMessage);
+
       setError(
-        `Failed to send configuration: ${errorMessage}\n\nMake sure:\n• You're connected to "${AP_SSID}"\n• You didn't refresh this page\n• Weather Potato is powered on`
+        `Failed to send configuration: ${errorMessage}\n\n` +
+        `Debugging info:\n` +
+        `• Error type: ${errorType}\n` +
+        `• Connected to: ${AP_SSID}?\n` +
+        `• Page refreshed? (should be NO)\n` +
+        `• Check browser console for details`
       );
       setSubmitting(false);
     }
+  };
+
+  const handleFallbackRedirect = () => {
+    // Store config data in localStorage for ESP32 page to read
+    const configData = {
+      ssid: wifiCredentials.ssid,
+      password: wifiCredentials.password,
+      latitude: location.latitude,
+      longitude: location.longitude,
+      city: location.city || ''
+    };
+
+    localStorage.setItem('weatherPotato_pendingConfig', JSON.stringify(configData));
+
+    // Redirect to ESP32's HTTP page with data in URL as backup
+    const params = new URLSearchParams({
+      ssid: wifiCredentials.ssid,
+      password: wifiCredentials.password,
+      lat: location.latitude.toString(),
+      lon: location.longitude.toString()
+    });
+
+    // Redirect to ESP32's own web interface
+    window.location.href = `http://${AP_IP}:${AP_PORT}/setup?${params.toString()}`;
   };
 
   return (
@@ -249,6 +306,23 @@ export const APConnectionScreen = ({
             {error && (
               <div className="mb-4 p-3 bg-error/20 rounded-xl">
                 <p className="text-sm text-error">⚠️ {error}</p>
+
+                {/* Fallback option for mixed content blocking */}
+                {showMixedContentFallback && (
+                  <div className="mt-3 pt-3 border-t border-error/30">
+                    <p className="text-xs text-gray-700 mb-2">
+                      <strong>iOS Mixed Content Fix:</strong> Your browser blocks HTTPS→HTTP requests.
+                      Use the button below to open the ESP32's web page directly.
+                    </p>
+                    <Button
+                      variant="secondary"
+                      onClick={handleFallbackRedirect}
+                      className="w-full"
+                    >
+                      🔧 Open ESP32 Setup Page
+                    </Button>
+                  </div>
+                )}
               </div>
             )}
 
