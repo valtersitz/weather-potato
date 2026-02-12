@@ -19,18 +19,21 @@ export const OnboardingComplete = () => {
     if (deviceId) {
       // Save device configuration
       const endpoint = ip ? `http://${ip}:8080` : `http://weatherpotato.local:8080`;
+      const hostname = ip || 'weatherpotato.local';
 
-      console.log('[OnboardingComplete] Saving config:', {
+      const config = {
         device_id: deviceId,
         endpoint,
-        setup_complete: true
-      });
+        hostname,
+        last_seen: Date.now(),
+        setup_complete: true,
+        ip: ip || undefined,
+        port: 8080
+      };
 
-      savePotatoConfig({
-        device_id: deviceId,
-        endpoint,
-        setup_complete: true
-      });
+      console.log('[OnboardingComplete] Saving config:', config);
+
+      savePotatoConfig(config);
 
       // Small delay to ensure localStorage is saved
       setTimeout(() => {

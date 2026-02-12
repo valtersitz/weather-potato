@@ -6,7 +6,6 @@ import type { WiFiCredentials, LocationInfo } from '../../types';
 interface APConnectionScreenProps {
   wifiCredentials: WiFiCredentials;
   location: LocationInfo;
-  onComplete: (deviceId: string) => void;
   onBack: () => void;
 }
 
@@ -18,7 +17,6 @@ const AP_PORT = 8080;
 export const APConnectionScreen = ({
   wifiCredentials,
   location,
-  onComplete,
   onBack
 }: APConnectionScreenProps) => {
   const [passwordCopied, setPasswordCopied] = useState(false);

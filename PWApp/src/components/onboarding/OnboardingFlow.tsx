@@ -162,17 +162,6 @@ export const OnboardingFlow = () => {
     setStep('wifi-setup');
   };
 
-  const handleAPModeComplete = (detectedDeviceId: string) => {
-    console.log('[OnboardingFlow] AP mode configuration sent');
-    console.log('[OnboardingFlow] Device ID:', detectedDeviceId);
-
-    setDeviceId(detectedDeviceId);
-    localStorage.setItem(STORAGE_DEVICE_ID, detectedDeviceId);
-
-    // Since we sent config via AP, device should now connect to WiFi
-    // Navigate to validation (without BLE connection)
-    setStep('validation');
-  };
 
   return (
     <div className="onboarding-flow">
@@ -196,7 +185,6 @@ export const OnboardingFlow = () => {
         <APConnectionScreen
           wifiCredentials={wifiCredentials}
           location={location}
-          onComplete={handleAPModeComplete}
           onBack={() => setStep('location-setup')}
         />
       )}
