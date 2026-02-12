@@ -302,11 +302,41 @@ void setupBLE() {
 // ============================================================================
 
 void setupWiFiAP() {
-  // Activate Access Point mode (backup method)
-  WiFi.softAP(apSSID, apPassword);
-  IPAddress ip = WiFi.softAPIP();
-  Serial.print("Access Point IP: ");
-  Serial.println(ip);
+  Serial.println("========================================");
+  Serial.println("🌐 Setting up Access Point...");
+
+  // Configure AP network parameters explicitly
+  IPAddress local_ip(192, 168, 4, 1);
+  IPAddress gateway(192, 168, 4, 1);
+  IPAddress subnet(255, 255, 255, 0);
+
+  // Configure the soft AP network
+  WiFi.softAPConfig(local_ip, gateway, subnet);
+
+  // Start Access Point
+  bool apStarted = WiFi.softAP(apSSID, apPassword);
+
+  if (apStarted) {
+    IPAddress ip = WiFi.softAPIP();
+    Serial.println("✅ Access Point started successfully!");
+    Serial.print("   SSID: ");
+    Serial.println(apSSID);
+    Serial.print("   Password: ");
+    Serial.println(apPassword);
+    Serial.print("   IP Address: ");
+    Serial.println(ip);
+    Serial.print("   Gateway: ");
+    Serial.println(gateway);
+    Serial.print("   Subnet: ");
+    Serial.println(subnet);
+    Serial.print("   Clients can connect and access: http://");
+    Serial.print(ip);
+    Serial.println(":8080");
+    Serial.println("========================================");
+  } else {
+    Serial.println("❌ Access Point failed to start!");
+    Serial.println("========================================");
+  }
 }
 
 void connectToWiFiViaBLE() {
@@ -974,6 +1004,34 @@ void setup() {
 
   // Also start AP mode as backup
   setupWiFiAP();
+
+  // CRITICAL: Register HTTP server endpoints for AP mode!
+  Serial.println("🌐 Starting HTTP server for AP mode...");
+
+  server.on("/", HTTP_GET, handleRootPage);
+  server.on("/setup", HTTP_GET, handleSetupPage);
+  server.on("/device-info", HTTP_GET, handleDeviceInfo);
+  server.on("/health", HTTP_GET, handleHealthEndpoint);
+  server.on("/weather", HTTP_GET, handleWeatherEndpoint);
+  server.on("/config", HTTP_POST, handleConfigSubmission);
+  server.on("/location", HTTP_POST, handleLocationSubmission);
+  server.on("/ota", HTTP_GET, handleOTAPage);
+  server.on("/otaUpdate", HTTP_POST, handleOTAUpdate);
+
+  // Handle CORS preflight requests
+  server.on("/device-info", HTTP_OPTIONS, handleCORSPreflight);
+  server.on("/health", HTTP_OPTIONS, handleCORSPreflight);
+  server.on("/weather", HTTP_OPTIONS, handleCORSPreflight);
+  server.on("/config", HTTP_OPTIONS, handleCORSPreflight);
+  server.on("/location", HTTP_OPTIONS, handleCORSPreflight);
+
+  server.begin();
+  Serial.println("✅ HTTP server started on port 8080 (AP mode)");
+  Serial.println("========================================");
+  Serial.println("📡 Server is ready to accept requests!");
+  Serial.println("   Access from: http://192.168.4.1:8080");
+  Serial.println("   Try: http://192.168.4.1:8080/setup");
+  Serial.println("========================================");
 
   Serial.println("=== Setup Complete ===\n");
 }
