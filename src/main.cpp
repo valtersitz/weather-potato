@@ -66,6 +66,8 @@ bool wifiConnecting = false;
 int wifiAttempts = 0;
 unsigned long wifiConnectStartTime = 0;
 unsigned long apShutdownTime = 0;  // When to shut down AP after WiFi connects
+bool wifiJustConnected = false;  // Flag to send success response then shutdown
+bool successResponseSent = false;  // Track if we sent the final success response
 
 // HTTP Server (port 8080 for PWA compatibility)
 // Note: Using HTTP with CORS headers to allow HTTPS PWA access
@@ -668,17 +670,14 @@ void handleSetupPage() {
               ✅ <strong>Connected to WiFi!</strong><br>
               Network: ${data.ssid}<br>
               IP: ${data.ip}<br><br>
-              <strong>Next steps:</strong><br>
-              1. Close this page<br>
-              2. Reconnect to "${data.ssid}" WiFi<br>
-              3. Open the PWA to see your weather!<br><br>
-              <small>This page will close automatically in 10 seconds...</small>
+              <strong>Success!</strong> Reconnect to "${data.ssid}" WiFi and open the PWA!<br><br>
+              <small>Redirecting in 3 seconds...</small>
             `;
 
-            // Redirect to home WiFi after 10 seconds
+            // Redirect to PWA after 3 seconds
             setTimeout(() => {
               window.location.href = 'https://weather-potato-vercel-127v.vercel.app/dashboard';
-            }, 10000);
+            }, 3000);
           } else if (data.status === 'connecting') {
             message.className = 'message info';
             message.innerHTML = `🔄 Connecting to ${data.ssid}... (${data.attempt}/30)`;
@@ -795,6 +794,13 @@ void handleConnectionStatus() {
     response += "\"status\":\"connected\",";
     response += "\"ssid\":\"" + WiFi.SSID() + "\",";
     response += "\"ip\":\"" + WiFi.localIP().toString() + "\"";
+
+    // Mark that we sent the success response
+    if (wifiJustConnected && !successResponseSent) {
+      successResponseSent = true;
+      Serial.println("[Status] Success response sent - AP will shutdown in 5 seconds");
+      apShutdownTime = millis() + 5000;  // Shutdown AP in 5 seconds
+    }
   } else if (wifiConnecting) {
     response += "\"connected\":false,";
     response += "\"status\":\"connecting\",";
@@ -1145,11 +1151,12 @@ void loop() {
       Serial.println(WiFi.SSID());
       Serial.print("   IP: ");
       Serial.println(WiFi.localIP());
-      Serial.println("   AP will shutdown in 30 seconds...");
+      Serial.println("   Waiting for setup page to poll status...");
+      Serial.println("   AP will shutdown after sending success response");
       Serial.println("========================================");
 
       wifiConnecting = false;
-      apShutdownTime = millis() + 30000;  // Shutdown AP in 30 seconds
+      wifiJustConnected = true;  // Flag for next status poll
 
       // Setup mDNS
       if (MDNS.begin("weatherpotato")) {
