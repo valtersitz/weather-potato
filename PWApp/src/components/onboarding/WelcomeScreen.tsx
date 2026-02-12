@@ -8,6 +8,7 @@ import { checkBrowserSupport } from '../../utils/helpers';
 interface WelcomeScreenProps {
   onStart: () => void;
   deviceId: string;
+  isDiscovering?: boolean;
 }
 
 interface BeforeInstallPromptEvent extends Event {
@@ -15,7 +16,7 @@ interface BeforeInstallPromptEvent extends Event {
   userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }>;
 }
 
-export const WelcomeScreen = ({ onStart, deviceId }: WelcomeScreenProps) => {
+export const WelcomeScreen = ({ onStart, deviceId, isDiscovering = false }: WelcomeScreenProps) => {
   const { t } = useI18n();
   const capabilities = checkBrowserSupport();
   const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
@@ -66,6 +67,14 @@ export const WelcomeScreen = ({ onStart, deviceId }: WelcomeScreenProps) => {
         <p className="text-xl text-gray-600 mb-8 font-fun">
           {t('welcome.subtitle')} 🌤️
         </p>
+
+        {isDiscovering && (
+          <div className="mb-6 p-4 bg-primary/10 rounded-xl">
+            <p className="text-sm text-gray-700">
+              🔍 Scanning network for Weather Potato devices...
+            </p>
+          </div>
+        )}
 
         {deviceId && (
           <div className="mb-6 p-4 bg-secondary/10 rounded-xl">

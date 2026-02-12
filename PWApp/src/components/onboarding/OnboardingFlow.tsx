@@ -8,7 +8,8 @@ import { LocationSetup } from './LocationSetup';
 import { ValidationScreen } from './ValidationScreen';
 import { SuccessScreen } from './SuccessScreen';
 import { APConnectionScreen } from './APConnectionScreen';
-import { loadPotatoConfig } from '../../services/localConnectionService';
+import { loadPotatoConfig, savePotatoConfig } from '../../services/localConnectionService';
+import { discoverWeatherPotato } from '../../services/discoveryService';
 import { supportsWebBluetooth, isIOS } from '../../utils/platform';
 import { STORAGE_DEVICE_ID } from '../../utils/constants';
 import type {
@@ -23,6 +24,7 @@ export const OnboardingFlow = () => {
   const navigate = useNavigate();
   const [step, setStep] = useState<OnboardingStep>('welcome');
   const [deviceId, setDeviceId] = useState<string>('');
+  const [isDiscovering, setIsDiscovering] = useState(false);
 
   console.log('[OnboardingFlow] Current step:', step);
   const [bleConnection, setBleConnection] = useState<BLEConnection | null>(null);
@@ -41,6 +43,31 @@ export const OnboardingFlow = () => {
       navigate('/dashboard');
       return;
     }
+
+    // Auto-discover devices on the network
+    const tryAutoDiscover = async () => {
+      setIsDiscovering(true);
+      console.log('[OnboardingFlow] Attempting auto-discovery...');
+
+      try {
+        const result = await discoverWeatherPotato();
+
+        if (result.found && result.config) {
+          console.log('[OnboardingFlow] ✅ Auto-discovered device!', result.config);
+          savePotatoConfig(result.config);
+          // Redirect to dashboard
+          navigate('/dashboard');
+        } else {
+          console.log('[OnboardingFlow] No device found, showing onboarding');
+        }
+      } catch (err) {
+        console.error('[OnboardingFlow] Auto-discovery failed:', err);
+      } finally {
+        setIsDiscovering(false);
+      }
+    };
+
+    tryAutoDiscover();
 
     // Get device ID from URL parameter (from QR code scan)
     const urlParams = new URLSearchParams(window.location.search);
@@ -169,6 +196,7 @@ export const OnboardingFlow = () => {
         <WelcomeScreen
           onStart={handleStart}
           deviceId={deviceId}
+          isDiscovering={isDiscovering}
         />
       )}
 
