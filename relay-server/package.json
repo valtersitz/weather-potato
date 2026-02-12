@@ -1,0 +1,17 @@
+{
+  "name": "weather-potato-relay",
+  "version": "1.0.0",
+  "description": "WebSocket relay server for Weather Potato PWA ↔ ESP32 communication",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "keywords": ["websocket", "relay", "esp32", "iot"],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "ws": "^8.16.0"
+  }
+}

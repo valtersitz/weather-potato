@@ -6,6 +6,7 @@ import 'leaflet/dist/leaflet.css';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { loadPotatoConfig } from '../services/localConnectionService';
+import { connectionService } from '../services/connectionService';
 import type { PotatoConfig, Coordinates } from '../types';
 
 // Fix for default marker icon in Leaflet with Vite
@@ -74,6 +75,9 @@ export const MapPage = () => {
     }
     setConfig(savedConfig);
 
+    // Initialize connection service
+    connectionService.init(savedConfig);
+
     // Try to get current coordinates from device
     fetchCurrentLocation();
   }, [navigate]);
@@ -82,17 +86,14 @@ export const MapPage = () => {
     if (!config) return;
 
     try {
-      const response = await fetch(`${config.endpoint}/weather`);
-      if (response.ok) {
-        const data = await response.json();
-        if (data.location) {
-          const coords = {
-            latitude: data.location.latitude,
-            longitude: data.location.longitude
-          };
-          setCoordinates(coords);
-          setTempCoordinates(coords);
-        }
+      const data = await connectionService.request('GET', '/weather');
+      if (data.location) {
+        const coords = {
+          latitude: data.location.latitude,
+          longitude: data.location.longitude
+        };
+        setCoordinates(coords);
+        setTempCoordinates(coords);
       }
     } catch (err) {
       console.warn('[Map] Could not fetch current location:', err);
@@ -163,25 +164,13 @@ export const MapPage = () => {
     setSuccess(false);
 
     try {
-      console.log('[Map] Sending coordinates to device:', tempCoordinates);
+      console.log('[Map] Sending coordinates via relay:', tempCoordinates);
 
-      const response = await fetch(`${config.endpoint}/location`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          latitude: tempCoordinates.latitude,
-          longitude: tempCoordinates.longitude
-        }),
-        signal: AbortSignal.timeout(5000)
+      const result = await connectionService.request('POST', '/location', {
+        latitude: tempCoordinates.latitude,
+        longitude: tempCoordinates.longitude
       });
 
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-      }
-
-      const result = await response.json();
       console.log('[Map] Location updated:', result);
 
       setCoordinates(tempCoordinates);
