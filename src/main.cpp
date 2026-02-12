@@ -61,6 +61,12 @@ bool bleEnabled = false;
 bool wifiConfigReceived = false;
 bool gpsConfigReceived = false;
 
+// WiFi connection status tracking
+bool wifiConnecting = false;
+int wifiAttempts = 0;
+unsigned long wifiConnectStartTime = 0;
+unsigned long apShutdownTime = 0;  // When to shut down AP after WiFi connects
+
 // HTTP Server (port 8080 for PWA compatibility)
 // Note: Using HTTP with CORS headers to allow HTTPS PWA access
 WebServer server(8080);
@@ -104,6 +110,7 @@ void handleCORSPreflight();
 void handleRootPage();
 void handleSetupPage();
 void handleDeviceInfo();
+void handleConnectionStatus();
 void handleHealthEndpoint();
 void handleWeatherEndpoint();
 void handleConfigSubmission();
@@ -377,6 +384,7 @@ void connectToWiFiViaBLE() {
     server.on("/", HTTP_GET, handleRootPage);
     server.on("/setup", HTTP_GET, handleSetupPage);  // For iOS fallback (avoids mixed content blocking)
     server.on("/device-info", HTTP_GET, handleDeviceInfo);  // For AP mode onboarding
+    server.on("/connection-status", HTTP_GET, handleConnectionStatus);
     server.on("/health", HTTP_GET, handleHealthEndpoint);  // For PWA validation
     server.on("/weather", HTTP_GET, handleWeatherEndpoint);  // For PWA weather display
     server.on("/config", HTTP_POST, handleConfigSubmission);
@@ -386,6 +394,7 @@ void connectToWiFiViaBLE() {
 
     // Handle CORS preflight requests
     server.on("/device-info", HTTP_OPTIONS, handleCORSPreflight);
+    server.on("/connection-status", HTTP_OPTIONS, handleCORSPreflight);
     server.on("/health", HTTP_OPTIONS, handleCORSPreflight);
     server.on("/weather", HTTP_OPTIONS, handleCORSPreflight);
     server.on("/config", HTTP_OPTIONS, handleCORSPreflight);
@@ -610,12 +619,14 @@ void handleSetupPage() {
 
       <div class="form-group">
         <label>Latitude</label>
-        <input type="number" step="0.000001" id="latitude" required>
+        <input type="text" id="latitude" pattern="-?[0-9]+\.?[0-9]*" required placeholder="48.888590">
+        <small>Full precision (e.g., 48.888590317034)</small>
       </div>
 
       <div class="form-group">
         <label>Longitude</label>
-        <input type="number" step="0.000001" id="longitude" required>
+        <input type="text" id="longitude" pattern="-?[0-9]+\.?[0-9]*" required placeholder="2.381029">
+        <small>Full precision (e.g., 2.381029489226)</small>
       </div>
 
       <button type="submit" id="submitBtn">Send Configuration</button>
@@ -640,6 +651,50 @@ void handleSetupPage() {
         document.getElementById('latitude').value = data.latitude || '';
         document.getElementById('longitude').value = data.longitude || '';
       } catch (e) {}
+    }
+
+    // Poll connection status
+    let pollInterval = null;
+    function checkConnectionStatus() {
+      fetch('/connection-status')
+        .then(r => r.json())
+        .then(data => {
+          const message = document.getElementById('message');
+
+          if (data.connected) {
+            clearInterval(pollInterval);
+            message.className = 'message success';
+            message.innerHTML = `
+              ✅ <strong>Connected to WiFi!</strong><br>
+              Network: ${data.ssid}<br>
+              IP: ${data.ip}<br><br>
+              <strong>Next steps:</strong><br>
+              1. Close this page<br>
+              2. Reconnect to "${data.ssid}" WiFi<br>
+              3. Open the PWA to see your weather!<br><br>
+              <small>This page will close automatically in 10 seconds...</small>
+            `;
+
+            // Redirect to home WiFi after 10 seconds
+            setTimeout(() => {
+              window.location.href = 'https://weather-potato-vercel-127v.vercel.app/dashboard';
+            }, 10000);
+          } else if (data.status === 'connecting') {
+            message.className = 'message info';
+            message.innerHTML = `🔄 Connecting to ${data.ssid}... (${data.attempt}/30)`;
+            message.style.display = 'block';
+          } else if (data.status === 'failed') {
+            clearInterval(pollInterval);
+            message.className = 'message error';
+            message.innerHTML = `❌ Failed to connect to WiFi.<br>Please check your password and try again.`;
+            document.getElementById('submitBtn').disabled = false;
+            document.getElementById('submitBtn').textContent = 'Send Configuration';
+          }
+        })
+        .catch(err => {
+          // If we can't reach the ESP32, it might have shut down AP (success!)
+          console.log('Connection status check failed (AP might be off):', err);
+        });
     }
 
     document.getElementById('configForm').addEventListener('submit', async (e) => {
@@ -668,14 +723,14 @@ void handleSetupPage() {
         });
 
         if (response.ok) {
-          message.className = 'message success';
-          message.textContent = '✅ Configuration sent! Weather Potato is connecting to your WiFi...';
+          message.className = 'message info';
+          message.textContent = '✅ Configuration sent! Connecting to WiFi...';
           message.style.display = 'block';
           localStorage.removeItem('weatherPotato_pendingConfig');
 
-          setTimeout(() => {
-            message.textContent = '✅ Done! You can close this page and reconnect to your home WiFi.';
-          }, 3000);
+          // Start polling connection status
+          pollInterval = setInterval(checkConnectionStatus, 2000);
+          setTimeout(checkConnectionStatus, 500); // Check immediately
         } else {
           throw new Error('HTTP ' + response.status);
         }
@@ -725,6 +780,35 @@ void handleDeviceInfo() {
   server.send(200, "application/json", response);
   Serial.println("✅ /device-info responded with 200 OK");
   Serial.println("========================================");
+}
+
+// Connection status endpoint for setup page polling
+void handleConnectionStatus() {
+  Serial.println("[Status] Connection status requested");
+
+  addCORSHeaders();
+
+  String response = "{";
+
+  if (WiFi.status() == WL_CONNECTED) {
+    response += "\"connected\":true,";
+    response += "\"status\":\"connected\",";
+    response += "\"ssid\":\"" + WiFi.SSID() + "\",";
+    response += "\"ip\":\"" + WiFi.localIP().toString() + "\"";
+  } else if (wifiConnecting) {
+    response += "\"connected\":false,";
+    response += "\"status\":\"connecting\",";
+    response += "\"ssid\":\"" + wifiSSID + "\",";
+    response += "\"attempt\":" + String(wifiAttempts);
+  } else {
+    response += "\"connected\":false,";
+    response += "\"status\":\"idle\"";
+  }
+
+  response += "}";
+
+  server.send(200, "application/json", response);
+  Serial.println("[Status] Sent: " + response);
 }
 
 void handleConfigSubmission() {
@@ -781,12 +865,15 @@ void handleConfigSubmission() {
     Serial.println("🔌 Attempting to connect to WiFi...");
     Serial.println("========================================");
 
-    // Attempt WiFi connection
-    delay(1000);
+    // Start WiFi connection (non-blocking - handled in loop())
     WiFi.disconnect();
     WiFi.begin(wifiSSID.c_str(), wifiPassword.c_str());
 
-    Serial.println("📶 WiFi connection initiated");
+    wifiConnecting = true;
+    wifiAttempts = 0;
+    wifiConnectStartTime = millis();
+
+    Serial.println("📶 WiFi connection initiated (non-blocking)");
   } else {
     Serial.println("   ❌ ERROR: Missing ssid or password in request");
     String response = "{\"success\":false,\"error\":\"Missing ssid or password\"}";
@@ -1011,6 +1098,7 @@ void setup() {
   server.on("/", HTTP_GET, handleRootPage);
   server.on("/setup", HTTP_GET, handleSetupPage);
   server.on("/device-info", HTTP_GET, handleDeviceInfo);
+  server.on("/connection-status", HTTP_GET, handleConnectionStatus);
   server.on("/health", HTTP_GET, handleHealthEndpoint);
   server.on("/weather", HTTP_GET, handleWeatherEndpoint);
   server.on("/config", HTTP_POST, handleConfigSubmission);
@@ -1020,6 +1108,7 @@ void setup() {
 
   // Handle CORS preflight requests
   server.on("/device-info", HTTP_OPTIONS, handleCORSPreflight);
+  server.on("/connection-status", HTTP_OPTIONS, handleCORSPreflight);
   server.on("/health", HTTP_OPTIONS, handleCORSPreflight);
   server.on("/weather", HTTP_OPTIONS, handleCORSPreflight);
   server.on("/config", HTTP_OPTIONS, handleCORSPreflight);
@@ -1043,6 +1132,61 @@ void loop() {
   // Previously only handled requests when WiFi.status() == WL_CONNECTED
   // This caused AP mode to NEVER process requests!
   server.handleClient();
+
+  // Monitor WiFi connection progress (non-blocking)
+  if (wifiConnecting) {
+    wl_status_t status = WiFi.status();
+
+    if (status == WL_CONNECTED) {
+      // SUCCESS! WiFi connected
+      Serial.println("========================================");
+      Serial.println("✅ WiFi Connected!");
+      Serial.print("   SSID: ");
+      Serial.println(WiFi.SSID());
+      Serial.print("   IP: ");
+      Serial.println(WiFi.localIP());
+      Serial.println("   AP will shutdown in 30 seconds...");
+      Serial.println("========================================");
+
+      wifiConnecting = false;
+      apShutdownTime = millis() + 30000;  // Shutdown AP in 30 seconds
+
+      // Setup mDNS
+      if (MDNS.begin("weatherpotato")) {
+        Serial.println("mDNS started: weatherpotato.local");
+        MDNS.addService("http", "tcp", 8080);
+      }
+
+      // Configure NTP for time sync
+      configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
+
+    } else {
+      // Still connecting - update attempt counter
+      unsigned long elapsed = millis() - wifiConnectStartTime;
+      wifiAttempts = elapsed / 1000;  // Convert to seconds
+
+      if (wifiAttempts > 30) {
+        // Connection failed after 30 seconds
+        Serial.println("========================================");
+        Serial.println("❌ WiFi Connection Failed");
+        Serial.println("   Timeout after 30 seconds");
+        Serial.println("========================================");
+        wifiConnecting = false;
+        wifiAttempts = 0;
+      }
+    }
+  }
+
+  // Shutdown AP after successful WiFi connection
+  if (apShutdownTime > 0 && millis() > apShutdownTime) {
+    Serial.println("========================================");
+    Serial.println("🔌 Shutting down Access Point...");
+    WiFi.softAPdisconnect(true);
+    Serial.println("✅ AP shutdown complete");
+    Serial.println("   Device now in STA mode only");
+    Serial.println("========================================");
+    apShutdownTime = 0;  // Clear flag
+  }
 
   // Sync time if needed (only when connected to WiFi as client)
   if (WiFi.status() == WL_CONNECTED && !getLocalTime(&timeinfo)) {
