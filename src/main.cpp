@@ -981,12 +981,12 @@ void setup() {
 void loop() {
   // mDNS runs automatically on ESP32, no update() needed
 
-  // Handle HTTP requests
-  if (WiFi.status() == WL_CONNECTED) {
-    server.handleClient();
-  }
+  // Handle HTTP requests (CRITICAL: Must work in both AP mode and STA mode!)
+  // Previously only handled requests when WiFi.status() == WL_CONNECTED
+  // This caused AP mode to NEVER process requests!
+  server.handleClient();
 
-  // Sync time if needed
+  // Sync time if needed (only when connected to WiFi as client)
   if (WiFi.status() == WL_CONNECTED && !getLocalTime(&timeinfo)) {
     configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
     delay(1000);
