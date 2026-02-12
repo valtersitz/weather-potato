@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { OnboardingFlow } from './components/onboarding/OnboardingFlow';
+import { OnboardingComplete } from './pages/OnboardingComplete';
 import { WeatherDashboard } from './pages/WeatherDashboard';
 import { MapPage } from './pages/MapPage';
 import { loadPotatoConfig } from './services/localConnectionService';
@@ -10,6 +11,7 @@ function App() {
       <Routes>
         {/* Onboarding flow */}
         <Route path="/" element={<OnboardingFlow />} />
+        <Route path="/onboarding-complete" element={<OnboardingComplete />} />
 
         {/* Main app pages */}
         <Route

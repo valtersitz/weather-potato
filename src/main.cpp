@@ -674,10 +674,27 @@ void handleSetupPage() {
               <small>Redirecting in 3 seconds...</small>
             `;
 
-            // Redirect to PWA after 3 seconds
-            setTimeout(() => {
-              window.location.href = 'https://weather-potato-vercel-127v.vercel.app/dashboard';
-            }, 3000);
+            // Get device ID and redirect to PWA
+            fetch('/device-info')
+              .then(r => r.json())
+              .then(info => {
+                const deviceId = info.device_id || 'unknown';
+
+                // Redirect to PWA onboarding complete page with device info
+                setTimeout(() => {
+                  const redirectUrl = new URL('https://weather-potato-vercel-127v.vercel.app/onboarding-complete');
+                  redirectUrl.searchParams.set('deviceId', deviceId);
+                  redirectUrl.searchParams.set('ssid', data.ssid);
+                  redirectUrl.searchParams.set('ip', data.ip);
+                  window.location.href = redirectUrl.toString();
+                }, 3000);
+              })
+              .catch(() => {
+                // Fallback: redirect to dashboard without device ID
+                setTimeout(() => {
+                  window.location.href = 'https://weather-potato-vercel-127v.vercel.app/dashboard';
+                }, 3000);
+              });
           } else if (data.status === 'connecting') {
             message.className = 'message info';
             message.innerHTML = `🔄 Connecting to ${data.ssid}... (${data.attempt}/30)`;
