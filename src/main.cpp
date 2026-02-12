@@ -455,6 +455,15 @@ void handleCORSPreflight() {
 
 // Health endpoint for PWA validation
 void handleHealthEndpoint() {
+  Serial.println("========================================");
+  Serial.println("📡 INCOMING REQUEST: /health");
+  Serial.print("   Client IP: ");
+  Serial.println(server.client().remoteIP());
+  Serial.print("   WiFi Status: ");
+  Serial.println(WiFi.status() == WL_CONNECTED ? "CONNECTED" : "NOT CONNECTED");
+  Serial.print("   Local IP: ");
+  Serial.println(WiFi.localIP());
+
   addCORSHeaders();  // Add CORS for HTTPS PWA access
 
   String response = "{";
@@ -464,12 +473,27 @@ void handleHealthEndpoint() {
   response += "\"local_ip\":\"" + WiFi.localIP().toString() + "\"";
   response += "}";
 
+  Serial.print("   Response: ");
+  Serial.println(response);
+
   server.send(200, "application/json", response);
-  Serial.println("Health check request handled");
+  Serial.println("✅ /health responded with 200 OK");
+  Serial.println("========================================");
 }
 
 // Weather endpoint for PWA display
 void handleWeatherEndpoint() {
+  Serial.println("========================================");
+  Serial.println("📡 INCOMING REQUEST: /weather");
+  Serial.print("   Method: ");
+  Serial.println(server.method() == HTTP_GET ? "GET" : "OTHER");
+  Serial.print("   Client IP: ");
+  Serial.println(server.client().remoteIP());
+  Serial.print("   WiFi Status: ");
+  Serial.println(WiFi.status() == WL_CONNECTED ? "CONNECTED" : "NOT CONNECTED");
+  Serial.print("   Local IP: ");
+  Serial.println(WiFi.localIP());
+
   addCORSHeaders();  // Add CORS for HTTPS PWA access
 
   String response = "{";
@@ -484,8 +508,12 @@ void handleWeatherEndpoint() {
   response += "\"timestamp\":" + String(millis());
   response += "}";
 
+  Serial.print("   Response: ");
+  Serial.println(response);
+
   server.send(200, "application/json", response);
-  Serial.println("Weather data request handled");
+  Serial.println("✅ /weather responded with 200 OK");
+  Serial.println("========================================");
 }
 
 void handleRootPage() {
@@ -1160,6 +1188,14 @@ void loop() {
   if (wifiConnecting) {
     wl_status_t status = WiFi.status();
 
+    // Debug: Print status every 5 seconds
+    static unsigned long lastStatusPrint = 0;
+    if (millis() - lastStatusPrint > 5000) {
+      Serial.printf("[DEBUG] wifiConnecting=true, status=%d, elapsed=%lus\n",
+                    status, (millis() - wifiConnectStartTime) / 1000);
+      lastStatusPrint = millis();
+    }
+
     if (status == WL_CONNECTED) {
       // SUCCESS! WiFi connected
       Serial.println("========================================");
@@ -1168,6 +1204,10 @@ void loop() {
       Serial.println(WiFi.SSID());
       Serial.print("   IP: ");
       Serial.println(WiFi.localIP());
+      Serial.print("   Gateway: ");
+      Serial.println(WiFi.gatewayIP());
+      Serial.print("   DNS: ");
+      Serial.println(WiFi.dnsIP());
       Serial.println("   Waiting for setup page to poll status...");
       Serial.println("   AP will shutdown after sending success response");
       Serial.println("========================================");
@@ -1176,9 +1216,11 @@ void loop() {
       wifiJustConnected = true;  // Flag for next status poll
 
       // Setup mDNS
+      Serial.println("[DEBUG] Setting up mDNS...");
       if (MDNS.begin("weatherpotato")) {
-        Serial.println("mDNS started: weatherpotato.local");
+        Serial.println("✅ mDNS started: weatherpotato.local");
         MDNS.addService("http", "tcp", 8080);
+        Serial.println("✅ mDNS HTTP service registered");
       } else {
         Serial.println("⚠️  mDNS failed to start");
       }
@@ -1186,9 +1228,13 @@ void loop() {
       // CRITICAL: Restart HTTP server for WiFi interface
       // The server was bound to AP interface (192.168.4.1)
       // Now we need to rebind to the new WiFi IP
+      Serial.println("[DEBUG] About to restart HTTP server...");
       Serial.println("🔄 Restarting HTTP server for WiFi interface...");
+
+      Serial.println("[DEBUG] Closing existing server...");
       server.close();  // Stop the server
 
+      Serial.println("[DEBUG] Registering endpoints...");
       // Re-register all endpoints
       server.on("/", HTTP_GET, handleRootPage);
       server.on("/setup", HTTP_GET, handleSetupPage);
@@ -1200,7 +1246,9 @@ void loop() {
       server.on("/location", HTTP_POST, handleLocationSubmission);
       server.on("/ota", HTTP_GET, handleOTAPage);
       server.on("/otaUpdate", HTTP_POST, handleOTAUpdate);
+      Serial.println("[DEBUG] Endpoints registered");
 
+      Serial.println("[DEBUG] Registering CORS preflight handlers...");
       // Re-register CORS preflight
       server.on("/device-info", HTTP_OPTIONS, handleCORSPreflight);
       server.on("/connection-status", HTTP_OPTIONS, handleCORSPreflight);
@@ -1208,7 +1256,9 @@ void loop() {
       server.on("/weather", HTTP_OPTIONS, handleCORSPreflight);
       server.on("/config", HTTP_OPTIONS, handleCORSPreflight);
       server.on("/location", HTTP_OPTIONS, handleCORSPreflight);
+      Serial.println("[DEBUG] CORS handlers registered");
 
+      Serial.println("[DEBUG] Starting server...");
       server.begin();  // Restart server on WiFi interface
       Serial.println("✅ HTTP server restarted on WiFi interface");
       Serial.print("   Access from: http://");
@@ -1216,9 +1266,16 @@ void loop() {
       Serial.println(":8080");
       Serial.print("   Or via mDNS: http://weatherpotato.local:8080");
       Serial.println();
+      Serial.println("[DEBUG] Server is now listening for requests");
 
       // Configure NTP for time sync
+      Serial.println("[DEBUG] Configuring NTP...");
       configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
+      Serial.println("[DEBUG] NTP configured");
+
+      Serial.println("========================================");
+      Serial.println("🎉 SETUP COMPLETE - Ready for requests!");
+      Serial.println("========================================");
 
     } else {
       // Still connecting - update attempt counter
