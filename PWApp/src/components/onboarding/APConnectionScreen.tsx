@@ -20,6 +20,9 @@ export const APConnectionScreen = ({
   onBack
 }: APConnectionScreenProps) => {
   const [passwordCopied, setPasswordCopied] = useState(false);
+  const [isConnected, setIsConnected] = useState(false);
+  const [isChecking, setIsChecking] = useState(false);
+  const [checkAttempts, setCheckAttempts] = useState(0);
 
   const handleCopyPassword = async () => {
     try {
@@ -63,13 +66,48 @@ export const APConnectionScreen = ({
     window.location.href = `http://${AP_IP}:${AP_PORT}/setup?${params.toString()}`;
   };
 
-  // Auto-redirect after component mounts (give user a moment to read)
+  // Poll for AP connectivity
   useEffect(() => {
-    const timer = setTimeout(() => {
-      handleOpenSetupPage();
-    }, 2000);
+    let pollInterval: number;
 
-    return () => clearTimeout(timer);
+    const checkAPConnectivity = async () => {
+      setIsChecking(true);
+      setCheckAttempts(prev => prev + 1);
+
+      try {
+        console.log('[AP] Checking connectivity to Weather Potato AP...');
+        const response = await fetch(`http://${AP_IP}:${AP_PORT}/device-info`, {
+          method: 'GET',
+          signal: AbortSignal.timeout(3000)
+        });
+
+        if (response.ok) {
+          console.log('[AP] ✅ Connected to Weather Potato AP!');
+          setIsConnected(true);
+          setIsChecking(false);
+          clearInterval(pollInterval);
+
+          // Wait 1 second then redirect
+          setTimeout(() => {
+            handleOpenSetupPage();
+          }, 1000);
+        }
+      } catch (err) {
+        console.log('[AP] Not connected yet, retrying...', err);
+        setIsChecking(false);
+      }
+    };
+
+    // Start checking immediately
+    checkAPConnectivity();
+
+    // Then poll every 3 seconds
+    pollInterval = window.setInterval(checkAPConnectivity, 3000);
+
+    // Cleanup
+    return () => {
+      if (pollInterval) clearInterval(pollInterval);
+    };
   }, []);
 
   return (
@@ -123,12 +161,26 @@ export const APConnectionScreen = ({
           </p>
         </div>
 
-        {/* Auto-redirect message */}
-        <div className="mb-4 p-3 bg-primary/10 rounded-xl text-center">
-          <p className="text-sm text-gray-700">
-            🚀 After connecting to <strong>{AP_SSID}</strong>,<br/>
-            you'll be automatically redirected to the setup page in 2 seconds!
-          </p>
+        {/* Connection status */}
+        <div className={`mb-4 p-3 rounded-xl text-center ${
+          isConnected ? 'bg-success/20' : isChecking ? 'bg-primary/10' : 'bg-warning/10'
+        }`}>
+          {isConnected ? (
+            <p className="text-sm text-success-dark font-semibold">
+              ✅ Connected to {AP_SSID}!<br/>
+              <span className="text-xs">Redirecting to setup page...</span>
+            </p>
+          ) : isChecking ? (
+            <p className="text-sm text-gray-700">
+              🔄 Checking connection to {AP_SSID}...<br/>
+              <span className="text-xs">Attempt {checkAttempts}</span>
+            </p>
+          ) : (
+            <p className="text-sm text-gray-700">
+              📡 Connect to <strong>{AP_SSID}</strong> WiFi<br/>
+              <span className="text-xs">Auto-detection will start when connected</span>
+            </p>
+          )}
         </div>
 
         {/* Manual redirect button */}

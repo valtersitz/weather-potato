@@ -1179,7 +1179,43 @@ void loop() {
       if (MDNS.begin("weatherpotato")) {
         Serial.println("mDNS started: weatherpotato.local");
         MDNS.addService("http", "tcp", 8080);
+      } else {
+        Serial.println("⚠️  mDNS failed to start");
       }
+
+      // CRITICAL: Restart HTTP server for WiFi interface
+      // The server was bound to AP interface (192.168.4.1)
+      // Now we need to rebind to the new WiFi IP
+      Serial.println("🔄 Restarting HTTP server for WiFi interface...");
+      server.close();  // Stop the server
+
+      // Re-register all endpoints
+      server.on("/", HTTP_GET, handleRootPage);
+      server.on("/setup", HTTP_GET, handleSetupPage);
+      server.on("/device-info", HTTP_GET, handleDeviceInfo);
+      server.on("/connection-status", HTTP_GET, handleConnectionStatus);
+      server.on("/health", HTTP_GET, handleHealthEndpoint);
+      server.on("/weather", HTTP_GET, handleWeatherEndpoint);
+      server.on("/config", HTTP_POST, handleConfigSubmission);
+      server.on("/location", HTTP_POST, handleLocationSubmission);
+      server.on("/ota", HTTP_GET, handleOTAPage);
+      server.on("/otaUpdate", HTTP_POST, handleOTAUpdate);
+
+      // Re-register CORS preflight
+      server.on("/device-info", HTTP_OPTIONS, handleCORSPreflight);
+      server.on("/connection-status", HTTP_OPTIONS, handleCORSPreflight);
+      server.on("/health", HTTP_OPTIONS, handleCORSPreflight);
+      server.on("/weather", HTTP_OPTIONS, handleCORSPreflight);
+      server.on("/config", HTTP_OPTIONS, handleCORSPreflight);
+      server.on("/location", HTTP_OPTIONS, handleCORSPreflight);
+
+      server.begin();  // Restart server on WiFi interface
+      Serial.println("✅ HTTP server restarted on WiFi interface");
+      Serial.print("   Access from: http://");
+      Serial.print(WiFi.localIP());
+      Serial.println(":8080");
+      Serial.print("   Or via mDNS: http://weatherpotato.local:8080");
+      Serial.println();
 
       // Configure NTP for time sync
       configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
