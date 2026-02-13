@@ -6,3 +6,5 @@ start-local.sh
 Dockerfile
 DEPLOYMENT.md
 VERCEL_DEPLOYMENT.md
+package.json
+package-lock.json

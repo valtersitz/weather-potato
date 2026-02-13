@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Weather Potato Relay</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            max-width: 600px;
+            margin: 50px auto;
+            padding: 20px;
+            line-height: 1.6;
+        }
+        .status {
+            padding: 10px;
+            background: #f0f0f0;
+            border-radius: 5px;
+            margin: 20px 0;
+        }
+        code {
+            background: #333;
+            color: #0f0;
+            padding: 2px 6px;
+            border-radius: 3px;
+        }
+    </style>
+</head>
+<body>
+    <h1>🥔 Weather Potato Relay Server</h1>
+    <p>WebSocket relay for HTTPS PWA ↔ HTTP ESP32 communication</p>
+
+    <div class="status">
+        <strong>Status:</strong> <span id="status">Checking...</span>
+    </div>
+
+    <h2>Endpoints</h2>
+    <ul>
+        <li><code>/health</code> - Health check (GET)</li>
+        <li><code>/</code> - WebSocket relay (WS/WSS)</li>
+    </ul>
+
+    <h2>Usage</h2>
+    <p>This relay connects your HTTPS PWA to your HTTP ESP32 Weather Potato device.</p>
+
+    <script>
+        fetch('/health')
+            .then(r => r.json())
+            .then(data => {
+                document.getElementById('status').innerHTML =
+                    `✅ Online (${data.devices} device${data.devices !== 1 ? 's' : ''} connected)`;
+            })
+            .catch(() => {
+                document.getElementById('status').innerHTML = '❌ Offline';
+            });
+    </script>
+</body>
+</html>
