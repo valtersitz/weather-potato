@@ -56,7 +56,7 @@ wss.on('connection', (ws) => {
         }
 
         console.log(`[Relay] 📨 Forwarding request ${msg.id} (${msg.method} ${msg.path}) to device ${deviceId}`);
-        deviceWs.send(data);
+        deviceWs.send(data.toString());
 
         // Store PWA socket for response routing
         deviceWs.pendingRequests = deviceWs.pendingRequests || new Map();
@@ -69,7 +69,7 @@ wss.on('connection', (ws) => {
 
         if (pwaWs && pwaWs.readyState === 1) {
           console.log(`[Relay] 📨 Forwarding response ${requestId} (status ${msg.status}) to PWA`);
-          pwaWs.send(data);
+          pwaWs.send(data.toString());
           ws.pendingRequests.delete(requestId);
         } else {
           console.log(`[Relay] ⚠️  No PWA client found for response ${requestId}`);
