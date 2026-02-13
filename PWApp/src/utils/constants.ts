@@ -12,6 +12,9 @@ export const BLE_DEVICE_NAME_PREFIX = 'Potato-';
 export const MDNS_HOSTNAME = 'weatherpotato.local';
 export const DEFAULT_PORT = 8080;
 
+// WebSocket Relay
+export const RELAY_URL = import.meta.env.VITE_RELAY_URL || 'ws://localhost:3000';
+
 // Timeouts
 export const BLE_CONNECTION_TIMEOUT = 30000; // 30 seconds
 export const WIFI_CONNECTION_TIMEOUT = 30000; // 30 seconds

@@ -5,6 +5,7 @@ import { Button } from '../components/ui/Button';
 import { Loader } from '../components/ui/Loader';
 import { WeatherPotato } from '../components/weather/WeatherPotato';
 import { loadPotatoConfig } from '../services/localConnectionService';
+import { connectionService } from '../services/connectionService';
 import type { PotatoConfig } from '../types';
 
 interface WeatherResponse {
@@ -37,6 +38,9 @@ export const WeatherDashboard = () => {
       return;
     }
     setConfig(savedConfig);
+
+    // Initialize connection service
+    connectionService.init(savedConfig);
   }, [navigate]);
 
   useEffect(() => {
@@ -59,18 +63,9 @@ export const WeatherDashboard = () => {
       setLoading(true);
       setError('');
 
-      console.log('[Dashboard] Fetching weather from:', `${config.endpoint}/weather`);
+      console.log('[Dashboard] Fetching weather via relay for device:', config.device_id);
 
-      const response = await fetch(`${config.endpoint}/weather`, {
-        method: 'GET',
-        signal: AbortSignal.timeout(5000)
-      });
-
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-      }
-
-      const data: WeatherResponse = await response.json();
+      const data: WeatherResponse = await connectionService.request('GET', '/weather');
       console.log('[Dashboard] Weather data:', data);
 
       setWeather(data);

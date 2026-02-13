@@ -52,6 +52,7 @@ export interface PotatoConfig {
   setup_complete: boolean;
   ip?: string;
   port?: number;
+  relay_url?: string;  // WebSocket relay URL for HTTPS PWA access
 }
 
 // Weather types

@@ -12,6 +12,7 @@
 #include <WebServer.h>
 #include <Update.h>
 #include <ESPmDNS.h>
+#include <WebSocketsClient.h>
 
 // BLE Libraries
 #include <BLEDevice.h>
@@ -72,6 +73,10 @@ bool successResponseSent = false;  // Track if we sent the final success respons
 // HTTP Server (port 8080 for PWA compatibility)
 // Note: Using HTTP with CORS headers to allow HTTPS PWA access
 WebServer server(8080);
+
+// WebSocket client for relay connection
+WebSocketsClient wsClient;
+bool wsConnected = false;
 
 // NeoPixel
 Adafruit_NeoPixel strip = Adafruit_NeoPixel(NUM_LEDS, LED_PIN, NEO_GRB + NEO_KHZ800);
@@ -444,7 +449,8 @@ void connectToWiFiViaBLE() {
 void addCORSHeaders() {
   server.sendHeader("Access-Control-Allow-Origin", "*");
   server.sendHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-  server.sendHeader("Access-Control-Allow-Headers", "Content-Type");
+  server.sendHeader("Access-Control-Allow-Headers", "Content-Type, Access-Control-Request-Private-Network");
+  server.sendHeader("Access-Control-Allow-Private-Network", "true");  // Enable Private Network Access for HTTPS→HTTP
 }
 
 // Handle CORS preflight requests
@@ -1025,6 +1031,145 @@ void handleOTAUpdate() {
 }
 
 // ============================================================================
+// WEBSOCKET RELAY HANDLERS
+// ============================================================================
+
+String processLocalRequest(const char* method, const char* path, JsonVariant body) {
+  String response;
+
+  if (strcmp(path, "/health") == 0) {
+    StaticJsonDocument<256> doc;
+    doc["device_id"] = deviceId;
+    doc["status"] = "ready";
+    doc["firmware_version"] = "1.0.0";
+    doc["local_ip"] = WiFi.localIP().toString();
+    serializeJson(doc, response);
+
+  } else if (strcmp(path, "/weather") == 0) {
+    StaticJsonDocument<512> doc;
+    doc["device_id"] = deviceId;
+    doc["condition"] = lastWeatherCondition;
+    doc["temperature"] = lastTemperature;
+    doc["symbol"] = weatherSymbol;
+
+    JsonObject location = doc.createNestedObject("location");
+    location["latitude"] = latitude;
+    location["longitude"] = longitude;
+
+    doc["timestamp"] = millis();
+    serializeJson(doc, response);
+
+  } else if (strcmp(path, "/device-info") == 0) {
+    StaticJsonDocument<256> doc;
+    doc["device_id"] = deviceId;
+    doc["mac_address"] = WiFi.macAddress();
+    doc["firmware_version"] = "1.0.0";
+    serializeJson(doc, response);
+
+  } else if (strcmp(path, "/location") == 0 && strcmp(method, "POST") == 0) {
+    // Update location from body
+    if (!body.isNull()) {
+      float newLat = body["latitude"];
+      float newLon = body["longitude"];
+
+      latitude = newLat;
+      longitude = newLon;
+
+      Serial.printf("[WS] Location updated: %.4f, %.4f\n", latitude, longitude);
+
+      StaticJsonDocument<256> doc;
+      doc["success"] = true;
+      doc["latitude"] = latitude;
+      doc["longitude"] = longitude;
+      serializeJson(doc, response);
+
+      // Trigger weather fetch (async)
+      // fetchWeather(); // Uncomment if you want immediate weather update
+    }
+  }
+
+  return response;
+}
+
+void handleWebSocketMessage(const char* payload) {
+  StaticJsonDocument<1024> doc;
+  DeserializationError error = deserializeJson(doc, payload);
+
+  if (error) {
+    Serial.println("[WS] Failed to parse message");
+    return;
+  }
+
+  const char* type = doc["type"];
+  if (strcmp(type, "request") != 0) {
+    return;  // Ignore non-request messages
+  }
+
+  const char* requestId = doc["id"];
+  const char* method = doc["method"];
+  const char* path = doc["path"];
+
+  Serial.printf("[WS] Request: %s %s (id=%s)\n", method, path, requestId);
+
+  // Process request internally
+  String responseData = processLocalRequest(method, path, doc["body"]);
+
+  // Send response back to relay
+  StaticJsonDocument<2048> responseDoc;
+  responseDoc["id"] = requestId;
+  responseDoc["type"] = "response";
+  responseDoc["status"] = 200;
+
+  // Parse response data into JSON object
+  StaticJsonDocument<1024> dataDoc;
+  deserializeJson(dataDoc, responseData);
+  responseDoc["data"] = dataDoc.as<JsonObject>();
+
+  String responseMsg;
+  serializeJson(responseDoc, responseMsg);
+  wsClient.sendTXT(responseMsg);
+}
+
+void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
+  switch(type) {
+    case WStype_DISCONNECTED:
+      Serial.println("[WS] Disconnected from relay");
+      wsConnected = false;
+      break;
+
+    case WStype_CONNECTED:
+      Serial.println("[WS] ✅ Connected to relay");
+      wsConnected = true;
+
+      // Send registration message
+      {
+        StaticJsonDocument<256> regDoc;
+        regDoc["type"] = "register";
+        regDoc["device_id"] = deviceId;
+        regDoc["firmware_version"] = "1.0.0";
+
+        String regMsg;
+        serializeJson(regDoc, regMsg);
+        wsClient.sendTXT(regMsg);
+        Serial.println("[WS] Sent registration");
+      }
+      break;
+
+    case WStype_TEXT:
+      Serial.printf("[WS] Received: %s\n", payload);
+      handleWebSocketMessage((char*)payload);
+      break;
+
+    case WStype_ERROR:
+      Serial.println("[WS] Error occurred");
+      break;
+
+    default:
+      break;
+  }
+}
+
+// ============================================================================
 // SETUP & LOOP
 // ============================================================================
 
@@ -1184,6 +1329,11 @@ void loop() {
   // This caused AP mode to NEVER process requests!
   server.handleClient();
 
+  // Handle WebSocket relay connection (only when WiFi connected)
+  if (WiFi.status() == WL_CONNECTED) {
+    wsClient.loop();
+  }
+
   // Monitor WiFi connection progress (non-blocking)
   if (wifiConnecting) {
     wl_status_t status = WiFi.status();
@@ -1267,6 +1417,15 @@ void loop() {
       Serial.print("   Or via mDNS: http://weatherpotato.local:8080");
       Serial.println();
       Serial.println("[DEBUG] Server is now listening for requests");
+
+      // Initialize WebSocket relay connection
+      Serial.println("[WS] Connecting to relay server...");
+      // For local testing, use: wsClient.begin("192.168.1.100", 3000, "/");
+      // For production, use WSS with proper host
+      wsClient.begin("localhost", 3000, "/");  // Change to your relay server
+      wsClient.onEvent(webSocketEvent);
+      wsClient.setReconnectInterval(5000);
+      Serial.println("[WS] WebSocket client initialized");
 
       // Configure NTP for time sync
       Serial.println("[DEBUG] Configuring NTP...");
