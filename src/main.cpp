@@ -14,6 +14,43 @@
 #include <ESPmDNS.h>
 #include <WebSocketsClient.h>
 
+// ISRG Root X1 Certificate (Let's Encrypt, used by Railway)
+// Chain: *.up.railway.app → R13 → ISRG Root X1
+// Valid until: June 4, 2035
+const char* isrg_root_x1_ca = R"EOF(
+-----BEGIN CERTIFICATE-----
+MIIFazCCA1OgAwIBAgIRAIIQz7DSQONZRGPgu2OCiwAwDQYJKoZIhvcNAQELBQAw
+TzELMAkGA1UEBhMCVVMxKTAnBgNVBAoTIEludGVybmV0IFNlY3VyaXR5IFJlc2Vh
+cmNoIEdyb3VwMRUwEwYDVQQDEwxJU1JHIFJvb3QgWDEwHhcNMTUwNjA0MTEwNDM4
+WhcNMzUwNjA0MTEwNDM4WjBPMQswCQYDVQQGEwJVUzEpMCcGA1UEChMgSW50ZXJu
+ZXQgU2VjdXJpdHkgUmVzZWFyY2ggR3JvdXAxFTATBgNVBAMTDElTUkcgUm9vdCBY
+MTCCAiIwDQYJKoZIhvcNAQEBBQADggIPADCCAgoCggIBAK3oJHP0FDfzm54rVygc
+h77ct984kIxuPOZXoHj3dcKi/vVqbvYATyjb3miGbESTtrFj/RQSa78f0uoxmyF+
+0TM8ukj13Xnfs7j/EvEhmkvBioZxaUpmZmyPfjxwv60pIgbz5MDmgK7iS4+3mX6U
+A5/TR5d8mUgjU+g4rk8Kb4Mu0UlXjIB0ttov0DiNewNwIRt18jA8+o+u3dpjq+sW
+T8KOEUt+zwvo/7V3LvSye0rgTBIlDHCNAymg4VMk7BPZ7hm/ELNKjD+Jo2FR3qyH
+B5T0Y3HsLuJvW5iB4YlcNHlsdu87kGJ55tukmi8mxdAQ4Q7e2RCOFvu396j3x+UC
+B5iPNgiV5+I3lg02dZ77DnKxHZu8A/lJBdiB3QW0KtZB6awBdpUKD9jf1b0SHzUv
+KBds0pjBqAlkd25HN7rOrFleaJ1/ctaJxQZBKT5ZPt0m9STJEadao0xAH0ahmbWn
+OlFuhjuefXKnEgV4We0+UXgVCwOPjdAvBbI+e0ocS3MFEvzG6uBQE3xDk3SzynTn
+jh8BCNAw1FtxNrQHusEwMFxIt4I7mKZ9YIqioymCzLq9gwQbooMDQaHWBfEbwrbw
+qHyGO0aoSCqI3Haadr8faqU9GY/rOPNk3sgrDQoo//fb4hVC1CLQJ13hef4Y53CI
+rU7m2Ys6xt0nUW7/vGT1M0NPAgMBAAGjQjBAMA4GA1UdDwEB/wQEAwIBBjAPBgNV
+HRMBAf8EBTADAQH/MB0GA1UdDgQWBBR5tFnme7bl5AFzgAiIyBpY9umbbjANBgkq
+hkiG9w0BAQsFAAOCAgEAVR9YqbyyqFDQDLHYGmkgJykIrGF1XIpu+ILlaS/V9lZL
+ubhzEFnTIZd+50xx+7LSYK05qAvqFyFWhfFQDlnrzuBZ6brJFe+GnY+EgPbk6ZGQ
+3BebYhtF8GaV0nxvwuo77x/Py9auJ/GpsMiu/X1+mvoiBOv/2X/qkSsisRcOj/KK
+NFtY2PwByVS5uCbMiogziUwthDyC3+6WVwW6LLv3xLfHTjuCvjHIInNzktHCgKQ5
+ORAzI4JMPJ+GslWYHb4phowim57iaztXOoJwTdwJx4nLCgdNbOhdjsnvzqvHu7Ur
+TkXWStAmzOVyyghqpZXjFaH3pO3JLF+l+/+sKAIuvtd7u+Nxe5AW0wdeRlN8NwdC
+jNPElpzVmbUq4JUagEiuTDkHzsxHpFKVK7q4+63SM1N95R1NbdWhscdCb+ZAJzVc
+oyi3B43njTOQ5yOf+1CceWxG1bQVs5ZufpsMljq4Ui0/1lvh+wjChP4kqKOJ2qxq
+4RgqsahDYVvTH9w7jXbyLeiNdd8XM2w9U/t7y0Ff/9yi0GE44Za4rF2LN9d11TPA
+mRGunUHBcnWEvgJBQl9nJEiU0Zsnvgc/ubhPgXRR4Xq37Z0j4r7g1SgEEzwxA57d
+emyPxgcYxn/eR44/KJ4EBs+lVDR3veyJm+kXQ99b21/+jh5Xos1AnX5iItreGCc=
+-----END CERTIFICATE-----
+)EOF";
+
 // BLE Libraries
 #include <BLEDevice.h>
 #include <BLEServer.h>
@@ -1365,6 +1402,14 @@ void loop() {
       wifiConnecting = false;
       wifiJustConnected = true;  // Flag for next status poll
 
+      // Free BLE memory now that WiFi is connected (BLE uses ~50KB RAM, needed for SSL)
+      if (bleEnabled) {
+        Serial.println("[DEBUG] Shutting down BLE to free memory for SSL...");
+        BLEDevice::deinit(true);
+        bleEnabled = false;
+        Serial.printf("[DEBUG] Free heap after BLE shutdown: %d bytes\n", ESP.getFreeHeap());
+      }
+
       // Setup mDNS
       Serial.println("[DEBUG] Setting up mDNS...");
       if (MDNS.begin("weatherpotato")) {
@@ -1418,19 +1463,28 @@ void loop() {
       Serial.println();
       Serial.println("[DEBUG] Server is now listening for requests");
 
-      // Initialize WebSocket relay connection
-      Serial.println("[WS] Connecting to relay server...");
-      // For local testing, use: wsClient.begin("192.168.1.100", 3000, "/");
-      // For production, use WSS with proper host
-      wsClient.begin("localhost", 3000, "/");  // Change to your relay server
-      wsClient.onEvent(webSocketEvent);
-      wsClient.setReconnectInterval(5000);
-      Serial.println("[WS] WebSocket client initialized");
-
-      // Configure NTP for time sync
+      // Configure NTP for time sync (must happen before SSL connections)
       Serial.println("[DEBUG] Configuring NTP...");
       configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
-      Serial.println("[DEBUG] NTP configured");
+      // Wait for NTP sync (SSL cert validation needs correct time)
+      Serial.print("[DEBUG] Waiting for NTP sync");
+      time_t now = 0;
+      int ntpRetries = 0;
+      while (now < 1700000000 && ntpRetries < 20) {  // Wait until time is reasonable (after 2023)
+        delay(500);
+        time(&now);
+        Serial.print(".");
+        ntpRetries++;
+      }
+      Serial.println(now > 1700000000 ? " OK" : " TIMEOUT (continuing anyway)");
+
+      // Initialize WebSocket relay connection (WSS with Let's Encrypt CA cert)
+      Serial.printf("[WS] Free heap before SSL: %d bytes\n", ESP.getFreeHeap());
+      Serial.println("[WS] Connecting to relay server...");
+      wsClient.beginSslWithCA("weather-potato-production.up.railway.app", 443, "/", isrg_root_x1_ca);
+      wsClient.setReconnectInterval(5000);
+      wsClient.onEvent(webSocketEvent);
+      Serial.println("[WS] WebSocket client initialized");
 
       Serial.println("========================================");
       Serial.println("🎉 SETUP COMPLETE - Ready for requests!");

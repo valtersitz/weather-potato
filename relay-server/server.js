@@ -1,13 +1,28 @@
+import { createServer } from 'http';
 import { WebSocketServer } from 'ws';
 
 const PORT = process.env.PORT || 3000;
-const wss = new WebSocketServer({ port: PORT });
+
+// HTTP server for health checks (Railway needs this)
+const httpServer = createServer((req, res) => {
+  if (req.url === '/health' || req.url === '/') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({
+      status: 'ok',
+      devices: devices.size,
+      timestamp: Date.now()
+    }));
+  } else {
+    res.writeHead(404);
+    res.end('Not found');
+  }
+});
+
+// WebSocket server attached to HTTP server
+const wss = new WebSocketServer({ server: httpServer });
 
 // Registry: device_id → WebSocket connection
 const devices = new Map();
-
-console.log(`[Relay] WebSocket server listening on port ${PORT}`);
-console.log(`[Relay] Waiting for ESP32 devices and PWA clients to connect...`);
 
 wss.on('connection', (ws) => {
   console.log('[Relay] New connection established');
@@ -22,7 +37,6 @@ wss.on('connection', (ws) => {
         const deviceId = msg.device_id;
         devices.set(deviceId, ws);
         ws.deviceId = deviceId;
-        ws.isPWA = false;
         console.log(`[Relay] ✅ Device registered: ${deviceId}`);
         console.log(`[Relay] Total devices online: ${devices.size}`);
 
@@ -32,7 +46,6 @@ wss.on('connection', (ws) => {
         const deviceWs = devices.get(deviceId);
 
         if (!deviceWs || deviceWs.readyState !== 1) {
-          // Device offline or not registered
           console.log(`[Relay] ❌ Device ${deviceId} offline or not found`);
           ws.send(JSON.stringify({
             id: msg.id,
@@ -42,7 +55,6 @@ wss.on('connection', (ws) => {
           return;
         }
 
-        // Forward request to device
         console.log(`[Relay] 📨 Forwarding request ${msg.id} (${msg.method} ${msg.path}) to device ${deviceId}`);
         deviceWs.send(data);
 
@@ -62,8 +74,6 @@ wss.on('connection', (ws) => {
         } else {
           console.log(`[Relay] ⚠️  No PWA client found for response ${requestId}`);
         }
-      } else {
-        console.log(`[Relay] ⚠️  Unknown message type: ${msg.type}`);
       }
 
     } catch (err) {
@@ -86,11 +96,17 @@ wss.on('connection', (ws) => {
   });
 });
 
+httpServer.listen(PORT, () => {
+  console.log(`[Relay] Server listening on port ${PORT}`);
+  console.log(`[Relay] Health check: http://localhost:${PORT}/health`);
+  console.log(`[Relay] Waiting for ESP32 devices and PWA clients...`);
+});
+
 // Graceful shutdown
 process.on('SIGINT', () => {
   console.log('\n[Relay] Shutting down gracefully...');
   wss.clients.forEach(client => client.close());
-  wss.close(() => {
+  httpServer.close(() => {
     console.log('[Relay] Server closed');
     process.exit(0);
   });
