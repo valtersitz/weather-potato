@@ -12,6 +12,7 @@
 #include <Update.h>
 #include <ESPmDNS.h>
 #include <WebSocketsClient.h>
+#include <Preferences.h>
 
 // ISRG Root X1 Certificate (Let's Encrypt, used by Railway)
 // Chain: *.up.railway.app → R13 → ISRG Root X1
@@ -68,11 +69,19 @@ emyPxgcYxn/eR44/KJ4EBs+lVDR3veyJm+kXQ99b21/+jh5Xos1AnX5iItreGCc=
 #define NUM_LEDS 12
 #define CAP_SENSOR_PIN 15
 #define BUZZER_PIN 21
+#define BOOT_BTN_PIN 0   // GPIO0 — BOOT button, active LOW (all ESP32 dev boards)
 #define BUZZER_CHANNEL LEDC_CHANNEL_0
 #define BUZZER_TIMER LEDC_TIMER_0
 #define BUZZER_MODE LEDC_LOW_SPEED_MODE
 #define BUZZER_FREQUENCY 2000
 #define BUZZER_RESOLUTION LEDC_TIMER_8_BIT
+
+// Non-volatile storage (Preferences wraps ESP32 NVS)
+Preferences prefs;
+
+// Factory-reset button state
+unsigned long btnPressStart = 0;  // millis() when BOOT btn was first held
+bool btnIndicatorActive = false;  // true while we're drawing the LED progress ring
 
 // Mode AP (kept as backup alongside BLE)
 const char* apSSID = "myWeatherPotato";
@@ -156,6 +165,9 @@ int seqVibOffset = 0;             // current Hz offset from base freq
 int seqVibDir = 1;                // triangle LFO direction (+1 / -1)
 
 // Function declarations
+void loadCredentials();
+void saveCredentials();
+void factoryReset();
 void setupBLE();
 void setupWiFiAP();
 void connectToWiFiViaBLE();
@@ -199,6 +211,7 @@ class WiFiConfigCallback : public BLECharacteristicCallbacks {
 
         Serial.println("WiFi credentials received via BLE:");
         Serial.println("SSID: " + wifiSSID);
+        saveCredentials();  // persist to NVS
         wifiConfigReceived = true;
 
         // If both WiFi and GPS received, connect
@@ -227,6 +240,7 @@ class GPSConfigCallback : public BLECharacteristicCallbacks {
         longitude = doc["lon"].as<float>();
 
         Serial.printf("GPS coordinates received via BLE: %.6f, %.6f\n", latitude, longitude);
+        saveCredentials();  // persist to NVS
         gpsConfigReceived = true;
 
         // If both WiFi and GPS received, connect
@@ -947,12 +961,15 @@ void handleConfigSubmission() {
     Serial.println("WiFi credentials updated via HTTP/AP");
     Serial.println("SSID: " + wifiSSID);
 
-    // Optional: Extract GPS coordinates if provided
+    // Optional: Extract GPS coordinates and city if provided
     if (doc.containsKey("latitude") && doc.containsKey("longitude")) {
       latitude = doc["latitude"].as<float>();
       longitude = doc["longitude"].as<float>();
       Serial.printf("GPS coordinates also received: %.6f, %.6f\n", latitude, longitude);
     }
+    if (doc.containsKey("city")) geoLocation = doc["city"].as<String>();
+
+    saveCredentials();  // persist WiFi + location to NVS
 
     // Send success response
     String response = "{";
@@ -1006,8 +1023,10 @@ void handleLocationSubmission() {
   if (doc.containsKey("latitude") && doc.containsKey("longitude")) {
     latitude = doc["latitude"].as<float>();
     longitude = doc["longitude"].as<float>();
+    if (doc.containsKey("city")) geoLocation = doc["city"].as<String>();
 
     Serial.printf("Location updated via HTTP: %.6f, %.6f\n", latitude, longitude);
+    saveCredentials();  // persist to NVS
 
     // Send success response
     String response = "{";
@@ -1122,8 +1141,10 @@ String processLocalRequest(const char* method, const char* path, JsonVariant bod
 
       latitude = newLat;
       longitude = newLon;
+      if (!body["city"].isNull()) geoLocation = body["city"].as<String>();
 
       Serial.printf("[WS] Location updated: %.4f, %.4f\n", latitude, longitude);
+      saveCredentials();  // persist to NVS
 
       StaticJsonDocument<256> doc;
       doc["success"] = true;
@@ -1240,6 +1261,66 @@ void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
 }
 
 // ============================================================================
+// ============================================================================
+// NVS PERSISTENCE & FACTORY RESET
+// ============================================================================
+
+// Load WiFi credentials and location from NVS into globals.
+// Called once at boot before the WiFi connection attempt.
+void loadCredentials() {
+  prefs.begin("potato", true);  // read-only namespace
+  wifiSSID     = prefs.getString("ssid",  "");
+  wifiPassword = prefs.getString("pass",  "");
+  latitude     = prefs.getFloat ("lat",   48.9075f);
+  longitude    = prefs.getFloat ("lon",   2.3833f);
+  geoLocation  = prefs.getString("city",  "");
+  prefs.end();
+
+  if (wifiSSID.length() > 0) {
+    Serial.println("[NVS] Loaded — SSID: " + wifiSSID +
+                   " | loc: " + String(latitude, 4) + "," + String(longitude, 4));
+  } else {
+    Serial.println("[NVS] No saved credentials — starting onboarding");
+  }
+}
+
+// Persist current credentials and location to NVS.
+// Call whenever wifiSSID / wifiPassword / lat / lon / geoLocation changes.
+void saveCredentials() {
+  prefs.begin("potato", false);  // read-write
+  prefs.putString("ssid", wifiSSID);
+  prefs.putString("pass", wifiPassword);
+  prefs.putFloat ("lat",  latitude);
+  prefs.putFloat ("lon",  longitude);
+  prefs.putString("city", geoLocation);
+  prefs.end();
+  Serial.println("[NVS] Saved — SSID: " + wifiSSID +
+                 " | loc: " + String(latitude, 4) + "," + String(longitude, 4));
+}
+
+// Erase NVS and restart — device will come back in onboarding mode.
+// Visual: red progress ring fills over 10 s, then 3 white flashes → restart.
+void factoryReset() {
+  Serial.println("🔴 FACTORY RESET — erasing NVS and restarting...");
+
+  // Three quick white flashes to confirm
+  for (int i = 0; i < 3; i++) {
+    for (int j = 0; j < NUM_LEDS; j++) strip.setPixelColor(j, strip.Color(255, 255, 255));
+    strip.show(); delay(200);
+    for (int j = 0; j < NUM_LEDS; j++) strip.setPixelColor(j, 0);
+    strip.show(); delay(200);
+  }
+
+  prefs.begin("potato", false);
+  prefs.clear();
+  prefs.end();
+
+  Serial.println("[NVS] Erased. Restarting in 500 ms...");
+  delay(500);
+  ESP.restart();
+}
+
+// ============================================================================
 // SETUP & LOOP
 // ============================================================================
 
@@ -1259,6 +1340,7 @@ void setup() {
   // Setup hardware
   pinMode(CAP_SENSOR_PIN, INPUT);
   pinMode(BUZZER_PIN, OUTPUT);
+  pinMode(BOOT_BTN_PIN, INPUT_PULLUP);  // GPIO0 BOOT button — active LOW
 
   // Initialize NeoPixel
   strip.begin();
@@ -1295,8 +1377,8 @@ void setup() {
 
   Serial.println("Hardware setup complete");
 
-  // TODO: Check EEPROM for saved WiFi credentials
-  // For now, check if we have credentials in variables
+  // Load saved credentials from NVS (replaces empty globals set above)
+  loadCredentials();
 
   // Try to connect with existing credentials (if any)
   WiFi.mode(WIFI_STA);
@@ -1557,6 +1639,42 @@ void loop() {
     delay(1000);
   }
 
+  // ── Factory reset: hold BOOT button (GPIO0) for 10 s ─────────────────────
+  // Active LOW — pressed = LOW. Progress ring fills red over 10 s.
+  // Release before 10 s cancels. At 10 s: 3 white flashes → NVS clear → restart.
+  {
+    unsigned long currentTime = millis();
+    if (digitalRead(BOOT_BTN_PIN) == LOW) {
+      if (btnPressStart == 0) {
+        btnPressStart = currentTime;
+        animationActive = false;  // take over LED ring
+        btnIndicatorActive = true;
+        Serial.println("[BTN] BOOT held — factory reset in 10 s (release to cancel)");
+      }
+      unsigned long held = currentTime - btnPressStart;
+
+      // Draw red progress ring: one LED per ~833 ms (12 LEDs × 833 ms = ~10 s)
+      int litLeds = min(NUM_LEDS, (int)(held * NUM_LEDS / 10000) + 1);
+      for (int i = 0; i < NUM_LEDS; i++) {
+        strip.setPixelColor(i, i < litLeds ? strip.Color(200, 0, 0) : 0);
+      }
+      strip.show();
+
+      if (held >= 10000) {
+        factoryReset();  // does not return
+      }
+    } else {
+      // Button released
+      if (btnPressStart > 0) {
+        Serial.println("[BTN] BOOT released — factory reset cancelled");
+        btnPressStart = 0;
+        btnIndicatorActive = false;
+        for (int i = 0; i < NUM_LEDS; i++) strip.setPixelColor(i, 0);
+        strip.show();
+      }
+    }
+  }
+
   // Handle capacitive touch for weather display
   static unsigned long lastTouchTime = 0;
   unsigned long currentTime = millis();
@@ -1596,8 +1714,8 @@ void loop() {
     }
   }
 
-  // Continue animation if active
-  if (animationActive) {
+  // Continue animation if active (skip while factory-reset indicator is running)
+  if (animationActive && !btnIndicatorActive) {
     setLEDRGB(currentTemperature);
   }
 
