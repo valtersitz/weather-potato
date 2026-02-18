@@ -140,14 +140,20 @@ int ledFogBrightness = 40;
 bool ledFogInc = true;
 
 // Buzzer note sequencer state
-const int SEQ_MAX = 16;
+const int SEQ_MAX = 32;           // max 32 notes per melody
 int seqFreq[SEQ_MAX];
 int seqDur[SEQ_MAX];
-int seqDuty[SEQ_MAX];  // LEDC duty 0-255 per note; 0 = rest
+int seqDuty[SEQ_MAX];             // LEDC duty 0-255; 0 = rest
+int seqVibDepth[SEQ_MAX];         // vibrato depth in Hz (0 = no vibrato)
+int seqVibRate[SEQ_MAX];          // ms between vibrato steps (0 = no vibrato)
 int seqLen = 0;
 int seqIdx = 0;
 bool seqActive = false;
 unsigned long seqNoteStart = 0;
+// Vibrato runtime state (for the currently playing note)
+unsigned long seqVibTimer = 0;
+int seqVibOffset = 0;             // current Hz offset from base freq
+int seqVibDir = 1;                // triangle LFO direction (+1 / -1)
 
 // Function declarations
 void setupBLE();
@@ -1134,6 +1140,8 @@ String processLocalRequest(const char* method, const char* path, JsonVariant bod
 
       Serial.printf("[TEST] condition=%s temperature=%d\n", condition.c_str(), temperature);
 
+      // Update currentTemperature so loop() continues animation at the right colour
+      currentTemperature = temperature;
       // Reset animation so setLEDRGB initialises fresh
       animationActive  = false;
       ledWeatherEffect = condition;
@@ -1816,120 +1824,142 @@ void setLEDRGB(int temperature) {
 }
 
 // Load a weather melody into the sequencer and start it immediately.
-// Each note has: freq (Hz, 0=rest), duration (ms), duty (0-255 LEDC duty).
-// Duty shapes the timbre: 128=warm square, 64=medium, 25=thin/sharp.
+// Each note slot: freq (Hz, 0=rest), duration (ms), duty (0-255),
+//                 vibDepth (±Hz range, 0=off), vibRate (ms per LFO step).
+// Vibrato uses a triangle LFO: freq oscillates ±vibDepth at 1 Hz/step
+// every vibRate ms — perceptually identical to the micro-vibrato described.
 void startWeatherMelody(String condition) {
-  int f[SEQ_MAX], d[SEQ_MAX], du[SEQ_MAX];
+  int f[SEQ_MAX], d[SEQ_MAX], du[SEQ_MAX], vd[SEQ_MAX], vr[SEQ_MAX];
   int n = 0;
 
+  // Helper: zero-fill vibrato arrays
+  auto noVib = [&]() { for (int i=0;i<n;i++) { vd[i]=0; vr[i]=0; } };
+
   if (condition == "clear_sky") {
-    // Pattern: • • • —— (3 quick chirps → long held high note)
-    // Bright, full duty — unmistakably sunny
-    int tf[] = {1047, 1319, 1568, 1047};
-    int td[] = {  90,   90,   90,  700};
-    int tdu[]= { 128,  128,  128,  128};
-    n = 4; memcpy(f,tf,n*4); memcpy(d,td,n*4); memcpy(du,tdu,n*4);
+    // ☀️ Joyful sunrise — C5 E5 G5 C6 pause G5
+    int tf[] = {523, 659, 784, 1047,   0, 784};
+    int td[] = {120, 120, 120,  180, 150, 600};
+    int tdu[]= {128, 128, 128,  128,   0, 128};
+    n=6; memcpy(f,tf,n*4); memcpy(d,td,n*4); memcpy(du,tdu,n*4); noVib();
 
   } else if (condition == "light_clouds") {
-    // Pattern: •—• (short–long–short gentle sway)
-    int tf[] = {784, 659, 784};
-    int td[] = {150, 550, 350};
-    int tdu[]= { 100, 100, 100};
-    n = 3; memcpy(f,tf,n*4); memcpy(d,td,n*4); memcpy(du,tdu,n*4);
+    // 🌤 Gentle sway — C5 D5 C5 G4
+    int tf[] = {523, 587, 523, 392};
+    int td[] = {150, 150, 150, 300};
+    int tdu[]= {100, 100, 100, 100};
+    n=4; memcpy(f,tf,n*4); memcpy(d,td,n*4); memcpy(du,tdu,n*4); noVib();
 
   } else if (condition == "partly_cloudy") {
-    // Pattern: • _ — (note, hesitation, lower unresolved note)
-    int tf[] = {523,   0, 392};
-    int td[] = {200, 200, 600};
-    int tdu[]= { 100,   0, 100};
-    n = 3; memcpy(f,tf,n*4); memcpy(d,td,n*4); memcpy(du,tdu,n*4);
+    // 🌥 Question mark — E5 G5 E5 pause F5 (unresolved tension)
+    int tf[] = {659, 784, 659,   0, 698};
+    int td[] = {150, 150, 150, 200, 500};
+    int tdu[]= {100, 100, 100,   0, 100};
+    n=5; memcpy(f,tf,n*4); memcpy(d,td,n*4); memcpy(du,tdu,n*4); noVib();
 
   } else if (condition == "cloudy") {
-    // Pattern: — _ — _ —— (slow sighing 3-step descent E4→D4→C4)
-    int tf[] = {330,   0, 294,   0, 262};
-    int td[] = {400, 150, 400, 150, 700};
-    int tdu[]= { 128,   0, 128,   0, 128};
-    n = 5; memcpy(f,tf,n*4); memcpy(d,td,n*4); memcpy(du,tdu,n*4);
+    // ☁️ Melodramatic sigh — G4 F4 D4 C4 (slow vibrato on final note)
+    int tf[] = {392, 349, 294, 262};
+    int td[] = {300, 300, 300, 500};
+    int tdu[]= {128, 128, 128, 128};
+    int tvd[]= {  0,   0,   0,   5}; // ±5 Hz vibrato on C4 only
+    int tvr[]= {  0,   0,   0,  25}; // step every 25ms
+    n=4; memcpy(f,tf,n*4); memcpy(d,td,n*4); memcpy(du,tdu,n*4);
+    memcpy(vd,tvd,n*4); memcpy(vr,tvr,n*4);
 
   } else if (condition == "light_fog") {
-    // Pattern: ————————— (single very long low drone, A3, ~2s)
-    int tf[] = {220};
-    int td[] = {2000};
-    int tdu[]= {128};
-    n = 1; memcpy(f,tf,n*4); memcpy(d,td,n*4); memcpy(du,tdu,n*4);
+    // 🌫 Ghost whisper — A3 pause A3 pause A3 (subtle ±3Hz vibrato)
+    int tf[] = {220,   0, 220,   0, 220};
+    int td[] = {200, 150, 200, 150, 800};
+    int tdu[]= {128,   0, 128,   0, 128};
+    int tvd[]= {  3,   0,   3,   0,   3};
+    int tvr[]= { 25,   0,  25,   0,  25};
+    n=5; memcpy(f,tf,n*4); memcpy(d,td,n*4); memcpy(du,tdu,n*4);
+    memcpy(vd,tvd,n*4); memcpy(vr,tvr,n*4);
 
   } else if (condition == "dense_fog") {
-    // Pattern: ——————↓———— (foghorn: long G3 slides to lower F3)
-    int tf[] = {196, 175};
-    int td[] = {1300, 1200};
-    int tdu[]= {128, 128};
-    n = 2; memcpy(f,tf,n*4); memcpy(d,td,n*4); memcpy(du,tdu,n*4);
+    // 🌁 Foghorn — F3 pause D3 pause F3 (slow ±5Hz vibrato on tone notes)
+    int tf[] = {175,   0, 147,   0, 175};
+    int td[] = {400, 200, 400, 200, 800};
+    int tdu[]= {128,   0, 128,   0, 128};
+    int tvd[]= {  5,   0,   5,   0,   5};
+    int tvr[]= { 30,   0,  30,   0,  30};
+    n=5; memcpy(f,tf,n*4); memcpy(d,td,n*4); memcpy(du,tdu,n*4);
+    memcpy(vd,tvd,n*4); memcpy(vr,tvr,n*4);
 
   } else if (condition == "drizzle") {
-    // Pattern: •••••••_ (7 rapid thin high taps — pitter-patter on metal)
-    // Low duty = thin/sharp = raindrop texture
-    int tf[] = {1568,1319,1568,1319,1568,1319,1568,   0};
-    int td[] = {  55,  55,  55,  55,  55,  55,  55, 250};
-    int tdu[]= {  25,  25,  25,  25,  25,  25,  25,   0};
-    n = 8; memcpy(f,tf,n*4); memcpy(d,td,n*4); memcpy(du,tdu,n*4);
+    // 🌦 Nervous tick — 10 × (C6 50ms + pause 30ms), thin duty
+    int tf[] = {1047,0,1047,0,1047,0,1047,0,1047,0,
+                1047,0,1047,0,1047,0,1047,0,1047,0};
+    int td[] = {  50,30,  50,30,  50,30,  50,30,  50,30,
+                  50,30,  50,30,  50,30,  50,30,  50,30};
+    int tdu[]= {  25, 0,  25, 0,  25, 0,  25, 0,  25, 0,
+                  25, 0,  25, 0,  25, 0,  25, 0,  25, 0};
+    n=20; memcpy(f,tf,n*4); memcpy(d,td,n*4); memcpy(du,tdu,n*4); noVib();
 
   } else if (condition == "freezing_rain") {
-    // Pattern: •_•_• (icy sharp stabs with long silences between)
-    // Tritone + low duty = harsh, cold, cutting
-    int tf[] = {740,   0, 740,   0, 740};
-    int td[] = {100, 200, 100, 200, 250};
-    int tdu[]= { 25,   0,  25,   0,  25};
-    n = 5; memcpy(f,tf,n*4); memcpy(d,td,n*4); memcpy(du,tdu,n*4);
+    // 🧊 Icy laser — E6 pause E6 pause B5 (sharp, dry, low duty)
+    int tf[] = {1319,   0, 1319,   0,  988};
+    int td[] = { 120, 100,  120, 100,  250};
+    int tdu[]= {  25,   0,   25,   0,   25};
+    n=5; memcpy(f,tf,n*4); memcpy(d,td,n*4); memcpy(du,tdu,n*4); noVib();
 
   } else if (condition == "rain") {
-    // Pattern: ••• ••• ••• (3 falling triplets, medium duty = watery)
-    int tf[] = {784,659,523,  0, 784,659,523,  0, 784,659,523};
-    int td[] = {110,110,110,100, 110,110,110,100, 110,110,350};
-    int tdu[]= { 64, 64, 64,  0,  64, 64, 64,  0,  64, 64, 64};
-    n = 11; memcpy(f,tf,n*4); memcpy(d,td,n*4); memcpy(du,tdu,n*4);
+    // 🌧 Steady groove — 3 × triplet G4 (slight freq jitter for realism)
+    int tf[] = {392,388,396, 0, 392,390,395, 0, 392,386,398, 0};
+    int td[] = {120,120,120,150, 120,120,120,150, 120,120,120,150};
+    int tdu[]= { 64, 64, 64,  0,  64, 64, 64,  0,  64, 64, 64,  0};
+    n=12; memcpy(f,tf,n*4); memcpy(d,td,n*4); memcpy(du,tdu,n*4); noVib();
 
   } else if (condition == "rain_shower") {
-    // Pattern: •••••••↓ (fast 7-note cascade — sudden downpour)
-    int tf[] = {988, 880, 784, 698, 659, 587, 523};
-    int td[] = { 75,  75,  75,  75,  75,  75, 500};
-    int tdu[]= { 64,  64,  64,  64,  64,  64,  64};
-    n = 7; memcpy(f,tf,n*4); memcpy(d,td,n*4); memcpy(du,tdu,n*4);
+    // 🌧🌦 Fast cascade — C6 B5 A5 G5 F5 E5 D5
+    int tf[] = {1047, 988, 880, 784, 698, 659, 587};
+    int td[] = {  80,  80,  80,  80,  80,  80, 120};
+    int tdu[]= {  64,  64,  64,  64,  64,  64,  64};
+    n=7; memcpy(f,tf,n*4); memcpy(d,td,n*4); memcpy(du,tdu,n*4); noVib();
 
   } else if (condition == "snow") {
-    // Pattern: •   •   • (isolated high crystals, lots of silence)
-    int tf[] = {1047,   0, 1319,   0, 1047};
-    int td[] = { 150, 650,  150, 650,  400};
+    // ❄️ Crystal sparkle — C6 pause G5 pause E6 (high, airy, sparse)
+    int tf[] = {1047,   0,  784,   0, 1319};
+    int td[] = { 120, 250,  120, 250,  150};
     int tdu[]= { 128,   0,  128,   0,  128};
-    n = 5; memcpy(f,tf,n*4); memcpy(d,td,n*4); memcpy(du,tdu,n*4);
+    n=5; memcpy(f,tf,n*4); memcpy(d,td,n*4); memcpy(du,tdu,n*4); noVib();
 
   } else if (condition == "snow_shower") {
-    // Pattern: • • • • (slightly more frequent crystals than snow)
-    int tf[] = {784,   0, 1047,   0,  784,   0, 1319};
-    int td[] = {130, 300,  130, 300,  130, 200,  450};
-    int tdu[]= {128,   0,  128,   0,  128,   0,  128};
-    n = 7; memcpy(f,tf,n*4); memcpy(d,td,n*4); memcpy(du,tdu,n*4);
+    // 🌨 Playful snowfall — C6 G5 E6 G5 C6
+    int tf[] = {1047, 784, 1319, 784, 1047};
+    int td[] = { 120, 120,  120, 120,  200};
+    int tdu[]= { 128, 128,  128, 128,  128};
+    n=5; memcpy(f,tf,n*4); memcpy(d,td,n*4); memcpy(du,tdu,n*4); noVib();
 
   } else if (condition == "thunderstorm") {
-    // Pattern: ≈≈≈≈≈≈ _ ——! (low tremolo rumble C3↔D3, then lightning crack C6)
-    // Medium duty on tremolo = edgy buzz; full duty on crack = sharp impact
-    int tf[] = {131, 147, 131, 147, 131, 147,   0, 1047};
-    int td[] = { 60,  60,  60,  60,  60,  60, 160,  700};
-    int tdu[]= { 50,  50,  50,  50,  50,  50,   0,  128};
-    n = 8; memcpy(f,tf,n*4); memcpy(d,td,n*4); memcpy(du,tdu,n*4);
+    // ⛈ Drama queen — 8× C3↔D3 rumble (30ms each) + pause + C6 crack
+    // The rapid alternation IS the heavy vibrato on the low register
+    int tf[] = {131,147,131,147,131,147,131,147,
+                131,147,131,147,131,147,131,147,   0, 1047};
+    int td[] = { 30, 30, 30, 30, 30, 30, 30, 30,
+                 30, 30, 30, 30, 30, 30, 30, 30, 200,   80};
+    int tdu[]= { 50, 50, 50, 50, 50, 50, 50, 50,
+                 50, 50, 50, 50, 50, 50, 50, 50,   0,  128};
+    n=18; memcpy(f,tf,n*4); memcpy(d,td,n*4); memcpy(du,tdu,n*4); noVib();
 
   } else {
     // Fallback: single neutral beep
-    f[0] = 440; d[0] = 400; du[0] = 128; n = 1;
+    f[0]=440; d[0]=400; du[0]=128; vd[0]=0; vr[0]=0; n=1;
   }
 
   // Load into sequencer globals
   seqLen = n;
   for (int i = 0; i < n; i++) {
     seqFreq[i] = f[i]; seqDur[i] = d[i]; seqDuty[i] = du[i];
+    seqVibDepth[i] = vd[i]; seqVibRate[i] = vr[i];
   }
   seqIdx       = 0;
   seqNoteStart = millis();
   seqActive    = true;
+  // Reset vibrato runtime state
+  seqVibOffset = 0;
+  seqVibDir    = 1;
+  seqVibTimer  = millis();
 
   // Start first note immediately
   if (seqFreq[0] > 0 && seqDuty[0] > 0) {
@@ -1943,9 +1973,26 @@ void startWeatherMelody(String condition) {
 void updateBuzzer() {
   if (!seqActive) return;
   unsigned long now = millis();
+
+  // ── Vibrato LFO (triangle wave, 1 Hz/step every vibRate ms) ────────────
+  // Applied continuously while the current note is sounding.
+  if (seqFreq[seqIdx] > 0 &&
+      seqVibDepth[seqIdx] > 0 &&
+      seqVibRate[seqIdx]  > 0 &&
+      now - seqVibTimer >= (unsigned long)seqVibRate[seqIdx]) {
+    seqVibTimer = now;
+    seqVibOffset += seqVibDir;
+    if (seqVibOffset >=  seqVibDepth[seqIdx]) seqVibDir = -1;
+    if (seqVibOffset <= -seqVibDepth[seqIdx]) seqVibDir =  1;
+    int vf = max(100, seqFreq[seqIdx] + seqVibOffset);
+    ledc_set_freq(BUZZER_MODE, BUZZER_TIMER, vf);
+    ledc_update_duty(BUZZER_MODE, BUZZER_CHANNEL);
+  }
+
+  // ── Advance when note duration has elapsed ───────────────────────────────
   if (now - seqNoteStart < (unsigned long)seqDur[seqIdx]) return;
 
-  // Current note slot finished — silence buzzer and advance
+  // Silence buzzer between notes
   ledc_set_duty(BUZZER_MODE, BUZZER_CHANNEL, 0);
   ledc_update_duty(BUZZER_MODE, BUZZER_CHANNEL);
 
@@ -1955,7 +2002,12 @@ void updateBuzzer() {
     return;
   }
 
+  // Reset vibrato for the new note
   seqNoteStart = now;
+  seqVibOffset = 0;
+  seqVibDir    = 1;
+  seqVibTimer  = now;
+
   if (seqFreq[seqIdx] > 0 && seqDuty[seqIdx] > 0) {
     ledc_set_freq(BUZZER_MODE, BUZZER_TIMER, seqFreq[seqIdx]);
     ledc_set_duty(BUZZER_MODE, BUZZER_CHANNEL, seqDuty[seqIdx]);
