@@ -127,15 +127,27 @@ const char* ntpServer = "pool.ntp.org";
 const long gmtOffset_sec = 3600;
 const int daylightOffset_sec = 3600;
 
-// Animation state
+// LED animation state
 bool animationActive = false;
+unsigned long ledAnimStart = 0;
+unsigned long ledLastUpdate = 0;
+int ledPulsePos = 0;
+String ledWeatherEffect = "";
+unsigned long ledThunderLast = 0;
+bool ledThunderOn = false;
+unsigned long ledThunderFlashStart = 0;
+int ledFogBrightness = 40;
+bool ledFogInc = true;
 
-// Buzzer state
-static unsigned long lastToneTime = 0;
-bool isToneActive = false;
-unsigned long toneStartTime = 0;
-uint32_t toneDuration = 0;
-uint32_t toneFrequency = 0;
+// Buzzer note sequencer state
+const int SEQ_MAX = 16;
+int seqFreq[SEQ_MAX];
+int seqDur[SEQ_MAX];
+int seqDuty[SEQ_MAX];  // LEDC duty 0-255 per note; 0 = rest
+int seqLen = 0;
+int seqIdx = 0;
+bool seqActive = false;
+unsigned long seqNoteStart = 0;
 
 // Function declarations
 void setupBLE();
@@ -143,7 +155,9 @@ void setupWiFiAP();
 void connectToWiFiViaBLE();
 void getWeatherForecast(int &code, int &temperature);
 void parseWeatherSymbol(JsonDocument &doc, int &code, int &temperature);
-void playToneIfNecessary(String weatherCondition);
+void startWeatherMelody(String condition);
+void updateBuzzer();
+uint32_t getTemperatureColor(int temperature);
 void setLEDRGB(int temperature);
 void interpretWeatherSymbol(int code, int temperature);
 void addCORSHeaders();
@@ -158,7 +172,6 @@ void handleConfigSubmission();
 void handleLocationSubmission();
 void handleOTAPage();
 void handleOTAUpdate();
-void playCloudyMelody();
 
 // ============================================================================
 // BLE CALLBACKS
@@ -1111,9 +1124,25 @@ String processLocalRequest(const char* method, const char* path, JsonVariant bod
       doc["latitude"] = latitude;
       doc["longitude"] = longitude;
       serializeJson(doc, response);
+    }
 
-      // Trigger weather fetch (async)
-      // fetchWeather(); // Uncomment if you want immediate weather update
+  } else if (strcmp(path, "/test") == 0 && strcmp(method, "POST") == 0) {
+    // Trigger a test animation + melody for a given condition/temperature
+    if (!body.isNull()) {
+      String condition = body["condition"].as<String>();
+      int temperature  = body["temperature"].as<int>();
+
+      Serial.printf("[TEST] condition=%s temperature=%d\n", condition.c_str(), temperature);
+
+      // Reset animation so setLEDRGB initialises fresh
+      animationActive  = false;
+      ledWeatherEffect = condition;
+      startWeatherMelody(condition);
+      setLEDRGB(temperature);
+
+      StaticJsonDocument<64> doc;
+      doc["ok"] = true;
+      serializeJson(doc, response);
     }
   }
 
@@ -1564,8 +1593,8 @@ void loop() {
     setLEDRGB(currentTemperature);
   }
 
-  // Handle buzzer
-  playToneIfNecessary("");
+  // Handle buzzer note sequencer
+  updateBuzzer();
 
   delay(10);
 }
@@ -1634,147 +1663,305 @@ void parseWeatherSymbol(JsonDocument &doc, int &code, int &temperature) {
 // LED & BUZZER FUNCTIONS
 // ============================================================================
 
+// Smoothly interpolate between two RGB colors (t in 0.0..1.0)
+static uint32_t lerpColor(int r1, int g1, int b1, int r2, int g2, int b2, float t) {
+  return strip.Color(
+    constrain(r1 + (int)((r2 - r1) * t), 0, 255),
+    constrain(g1 + (int)((g2 - g1) * t), 0, 255),
+    constrain(b1 + (int)((b2 - b1) * t), 0, 255)
+  );
+}
+
+// Map temperature (–10..40°C) to a NeoPixel color
+// blue → cyan → green → yellow-green → orange → red
+uint32_t getTemperatureColor(int temperature) {
+  int t = constrain(temperature, -10, 40);
+  if (t <= -10) return strip.Color(0, 0, 255);
+  if (t <= 0)   return lerpColor(  0,   0, 255,   0, 200, 255, (t + 10) / 10.0f);
+  if (t <= 10)  return lerpColor(  0, 200, 255,   0, 255,  80,  t        / 10.0f);
+  if (t <= 20)  return lerpColor(  0, 255,  80, 200, 255,   0, (t - 10) / 10.0f);
+  if (t <= 30)  return lerpColor(200, 255,   0, 255, 120,   0, (t - 20) / 10.0f);
+                return lerpColor(255, 120,   0, 255,   0,   0, (t - 30) / 10.0f);
+}
+
 void setLEDRGB(int temperature) {
-  static unsigned long animationStartTime = 0;
-  static unsigned long lastUpdateTime = 0;
-  static int animationStep = 0;
+  const unsigned long TOTAL_DUR   = 12000; // 12 s total
+  const unsigned long FLASH_DUR   =   200; // 200 ms white flash
+  const unsigned long UPDATE_INT  =    80; // ~12.5 fps
 
-  const unsigned long animationDuration = 10000;
-  const unsigned long updateInterval = 100;
+  unsigned long now = millis();
 
-  unsigned long currentTime = millis();
-
+  // ── Initialise on first call ──────────────────────────────────────────────
   if (!animationActive) {
     Serial.println("Starting LED animation...");
-    animationStartTime = currentTime;
-    lastUpdateTime = currentTime;
-    animationStep = 0;
-    animationActive = true;
+    animationActive        = true;
+    ledAnimStart           = now;
+    ledLastUpdate          = 0;
+    ledPulsePos            = 0;
+    ledThunderLast         = 0;
+    ledThunderOn           = false;
+    ledFogBrightness       = 40;
+    ledFogInc              = true;
+    // White flash
+    for (int i = 0; i < NUM_LEDS; i++) strip.setPixelColor(i, strip.Color(255, 255, 255));
+    strip.show();
+    return;
   }
 
-  if (animationActive && (currentTime - animationStartTime >= animationDuration)) {
+  unsigned long elapsed = now - ledAnimStart;
+
+  // ── End of animation ──────────────────────────────────────────────────────
+  if (elapsed >= TOTAL_DUR) {
     Serial.println("Ending LED animation...");
-    for (int i = 0; i < NUM_LEDS; i++) {
-      strip.setPixelColor(i, strip.Color(0, 0, 0));
-    }
+    for (int i = 0; i < NUM_LEDS; i++) strip.setPixelColor(i, 0);
     strip.show();
     animationActive = false;
     return;
   }
 
-  if (animationActive && (currentTime - lastUpdateTime >= updateInterval)) {
-    lastUpdateTime = currentTime;
+  // Flash phase: white already set, just wait
+  if (elapsed < FLASH_DUR) return;
 
-    if (temperature <= 0) {
-      // Cold: Blue gradient rotation
-      for (int i = 0; i < NUM_LEDS; i++) {
-        float factor = 1.0 - (((i + animationStep) % NUM_LEDS) / (float)NUM_LEDS);
-        int adjustedBlue = map(temperature, -10, 0, 128, 255) * factor;
-        strip.setPixelColor((i + animationStep) % NUM_LEDS, strip.Color(0, 0, adjustedBlue));
-      }
-      animationStep = (animationStep + 1) % NUM_LEDS;
-    } else if (temperature > 0 && temperature <= 25) {
-      // Moderate: Pulsing cyan/green
-      static int brightness = 0;
-      static bool increasing = true;
+  // Rate-limit frames
+  if (now - ledLastUpdate < UPDATE_INT) return;
+  ledLastUpdate = now;
 
-      if (increasing) {
-        brightness += 15;
-        if (brightness >= 255) increasing = false;
+  // Advance travelling pulse head one step per frame
+  ledPulsePos = (ledPulsePos + 1) % NUM_LEDS;
+
+  // Condition flags
+  bool isFog      = (ledWeatherEffect == "light_fog"  || ledWeatherEffect == "dense_fog");
+  bool isRain     = (ledWeatherEffect == "rain"        || ledWeatherEffect == "rain_shower" ||
+                     ledWeatherEffect == "drizzle"     || ledWeatherEffect == "freezing_rain");
+  bool isSnow     = (ledWeatherEffect == "snow"        || ledWeatherEffect == "snow_shower");
+  bool isThunder  = (ledWeatherEffect == "thunderstorm");
+  bool isHeatwave = (temperature > 35);
+
+  // ── Thunder flash override ────────────────────────────────────────────────
+  if (isThunder) {
+    bool due = (ledThunderLast == 0 || now - ledThunderLast > 2500);
+    if (!ledThunderOn && due) {
+      ledThunderOn        = true;
+      ledThunderFlashStart = now;
+      ledThunderLast      = now;
+    }
+    if (ledThunderOn) {
+      if (now - ledThunderFlashStart < 120) {
+        for (int i = 0; i < NUM_LEDS; i++) strip.setPixelColor(i, strip.Color(255, 255, 255));
+        strip.show();
+        return;
       } else {
-        brightness -= 15;
-        if (brightness <= 0) increasing = true;
-      }
-
-      int red = map(temperature, 0, 25, 0, 128);
-      int green = map(temperature, 0, 25, 255, 128);
-      int blue = map(temperature, 0, 25, 255, 64);
-
-      for (int i = 0; i < NUM_LEDS; i++) {
-        int adjustedRed = red * brightness / 255;
-        int adjustedGreen = green * brightness / 255;
-        int adjustedBlue = blue * brightness / 255;
-        strip.setPixelColor(i, strip.Color(adjustedRed, adjustedGreen, adjustedBlue));
-      }
-    } else if (temperature > 25) {
-      // Hot: Flame effect
-      for (int i = 0; i < NUM_LEDS; i++) {
-        if (random(10) > 7) {
-          strip.setPixelColor(i, strip.Color(255, random(64, 128), 0));
-        } else {
-          strip.setPixelColor(i, strip.Color(128, random(32, 64), 0));
-        }
+        ledThunderOn = false;
       }
     }
-
-    strip.show();
   }
+
+  // ── Fog breathing ─────────────────────────────────────────────────────────
+  if (isFog) {
+    int rate = (ledWeatherEffect == "dense_fog") ? 2 : 4;
+    ledFogBrightness += (ledFogInc ? rate : -rate);
+    if (ledFogBrightness >= 75) ledFogInc = false;
+    if (ledFogBrightness <= 15) ledFogInc = true;
+    ledFogBrightness = constrain(ledFogBrightness, 15, 75);
+  }
+
+  // ── Base temperature colour ───────────────────────────────────────────────
+  uint32_t tempColor = getTemperatureColor(temperature);
+  uint8_t tR = (tempColor >> 16) & 0xFF;
+  uint8_t tG = (tempColor >>  8) & 0xFF;
+  uint8_t tB =  tempColor        & 0xFF;
+
+  // ── Draw travelling pulse with quadratic falloff ──────────────────────────
+  for (int i = 0; i < NUM_LEDS; i++) {
+    int dist = abs(i - ledPulsePos);
+    if (dist > NUM_LEDS / 2) dist = NUM_LEDS - dist;
+
+    float bf;
+    switch (dist) {
+      case 0: bf = 1.00f; break;
+      case 1: bf = 0.65f; break;
+      case 2: bf = 0.35f; break;
+      case 3: bf = 0.15f; break;
+      case 4: bf = 0.05f; break;
+      default: bf = 0.0f; break;
+    }
+    if (isFog) bf *= ledFogBrightness / 100.0f;
+
+    strip.setPixelColor(i, strip.Color(
+      (int)(tR * bf),
+      (int)(tG * bf),
+      (int)(tB * bf)
+    ));
+  }
+
+  // ── Weather condition overlays (subtle, one LED per frame) ────────────────
+  if (isRain && random(100) < 35) {
+    int led = random(NUM_LEDS);
+    strip.setPixelColor(led, strip.Color(
+      constrain((int)(tR * 0.4) + 20, 0, 255),
+      constrain((int)(tG * 0.4) + 40, 0, 255),
+      constrain((int)(tB * 0.4) + 160, 0, 255)
+    ));
+  }
+  if (isSnow && random(100) < 25) {
+    int led = random(NUM_LEDS);
+    strip.setPixelColor(led, strip.Color(200, 220, 255));
+  }
+  if (isHeatwave && random(100) < 40) {
+    int led = random(NUM_LEDS);
+    strip.setPixelColor(led, strip.Color(255, random(40, 110), 0));
+  }
+
+  strip.show();
 }
 
-void playCloudyMelody() {
-  int melody[] = {261, 294, 330, 294, 261};
-  int noteDurations[] = {400, 400, 600, 400, 600};
+// Load a weather melody into the sequencer and start it immediately.
+// Each note has: freq (Hz, 0=rest), duration (ms), duty (0-255 LEDC duty).
+// Duty shapes the timbre: 128=warm square, 64=medium, 25=thin/sharp.
+void startWeatherMelody(String condition) {
+  int f[SEQ_MAX], d[SEQ_MAX], du[SEQ_MAX];
+  int n = 0;
 
-  for (int i = 0; i < 5; i++) {
-    tone(BUZZER_PIN, melody[i], noteDurations[i]);
-    delay(noteDurations[i] * 1.3);
+  if (condition == "clear_sky") {
+    // Pattern: • • • —— (3 quick chirps → long held high note)
+    // Bright, full duty — unmistakably sunny
+    int tf[] = {1047, 1319, 1568, 1047};
+    int td[] = {  90,   90,   90,  700};
+    int tdu[]= { 128,  128,  128,  128};
+    n = 4; memcpy(f,tf,n*4); memcpy(d,td,n*4); memcpy(du,tdu,n*4);
+
+  } else if (condition == "light_clouds") {
+    // Pattern: •—• (short–long–short gentle sway)
+    int tf[] = {784, 659, 784};
+    int td[] = {150, 550, 350};
+    int tdu[]= { 100, 100, 100};
+    n = 3; memcpy(f,tf,n*4); memcpy(d,td,n*4); memcpy(du,tdu,n*4);
+
+  } else if (condition == "partly_cloudy") {
+    // Pattern: • _ — (note, hesitation, lower unresolved note)
+    int tf[] = {523,   0, 392};
+    int td[] = {200, 200, 600};
+    int tdu[]= { 100,   0, 100};
+    n = 3; memcpy(f,tf,n*4); memcpy(d,td,n*4); memcpy(du,tdu,n*4);
+
+  } else if (condition == "cloudy") {
+    // Pattern: — _ — _ —— (slow sighing 3-step descent E4→D4→C4)
+    int tf[] = {330,   0, 294,   0, 262};
+    int td[] = {400, 150, 400, 150, 700};
+    int tdu[]= { 128,   0, 128,   0, 128};
+    n = 5; memcpy(f,tf,n*4); memcpy(d,td,n*4); memcpy(du,tdu,n*4);
+
+  } else if (condition == "light_fog") {
+    // Pattern: ————————— (single very long low drone, A3, ~2s)
+    int tf[] = {220};
+    int td[] = {2000};
+    int tdu[]= {128};
+    n = 1; memcpy(f,tf,n*4); memcpy(d,td,n*4); memcpy(du,tdu,n*4);
+
+  } else if (condition == "dense_fog") {
+    // Pattern: ——————↓———— (foghorn: long G3 slides to lower F3)
+    int tf[] = {196, 175};
+    int td[] = {1300, 1200};
+    int tdu[]= {128, 128};
+    n = 2; memcpy(f,tf,n*4); memcpy(d,td,n*4); memcpy(du,tdu,n*4);
+
+  } else if (condition == "drizzle") {
+    // Pattern: •••••••_ (7 rapid thin high taps — pitter-patter on metal)
+    // Low duty = thin/sharp = raindrop texture
+    int tf[] = {1568,1319,1568,1319,1568,1319,1568,   0};
+    int td[] = {  55,  55,  55,  55,  55,  55,  55, 250};
+    int tdu[]= {  25,  25,  25,  25,  25,  25,  25,   0};
+    n = 8; memcpy(f,tf,n*4); memcpy(d,td,n*4); memcpy(du,tdu,n*4);
+
+  } else if (condition == "freezing_rain") {
+    // Pattern: •_•_• (icy sharp stabs with long silences between)
+    // Tritone + low duty = harsh, cold, cutting
+    int tf[] = {740,   0, 740,   0, 740};
+    int td[] = {100, 200, 100, 200, 250};
+    int tdu[]= { 25,   0,  25,   0,  25};
+    n = 5; memcpy(f,tf,n*4); memcpy(d,td,n*4); memcpy(du,tdu,n*4);
+
+  } else if (condition == "rain") {
+    // Pattern: ••• ••• ••• (3 falling triplets, medium duty = watery)
+    int tf[] = {784,659,523,  0, 784,659,523,  0, 784,659,523};
+    int td[] = {110,110,110,100, 110,110,110,100, 110,110,350};
+    int tdu[]= { 64, 64, 64,  0,  64, 64, 64,  0,  64, 64, 64};
+    n = 11; memcpy(f,tf,n*4); memcpy(d,td,n*4); memcpy(du,tdu,n*4);
+
+  } else if (condition == "rain_shower") {
+    // Pattern: •••••••↓ (fast 7-note cascade — sudden downpour)
+    int tf[] = {988, 880, 784, 698, 659, 587, 523};
+    int td[] = { 75,  75,  75,  75,  75,  75, 500};
+    int tdu[]= { 64,  64,  64,  64,  64,  64,  64};
+    n = 7; memcpy(f,tf,n*4); memcpy(d,td,n*4); memcpy(du,tdu,n*4);
+
+  } else if (condition == "snow") {
+    // Pattern: •   •   • (isolated high crystals, lots of silence)
+    int tf[] = {1047,   0, 1319,   0, 1047};
+    int td[] = { 150, 650,  150, 650,  400};
+    int tdu[]= { 128,   0,  128,   0,  128};
+    n = 5; memcpy(f,tf,n*4); memcpy(d,td,n*4); memcpy(du,tdu,n*4);
+
+  } else if (condition == "snow_shower") {
+    // Pattern: • • • • (slightly more frequent crystals than snow)
+    int tf[] = {784,   0, 1047,   0,  784,   0, 1319};
+    int td[] = {130, 300,  130, 300,  130, 200,  450};
+    int tdu[]= {128,   0,  128,   0,  128,   0,  128};
+    n = 7; memcpy(f,tf,n*4); memcpy(d,td,n*4); memcpy(du,tdu,n*4);
+
+  } else if (condition == "thunderstorm") {
+    // Pattern: ≈≈≈≈≈≈ _ ——! (low tremolo rumble C3↔D3, then lightning crack C6)
+    // Medium duty on tremolo = edgy buzz; full duty on crack = sharp impact
+    int tf[] = {131, 147, 131, 147, 131, 147,   0, 1047};
+    int td[] = { 60,  60,  60,  60,  60,  60, 160,  700};
+    int tdu[]= { 50,  50,  50,  50,  50,  50,   0,  128};
+    n = 8; memcpy(f,tf,n*4); memcpy(d,td,n*4); memcpy(du,tdu,n*4);
+
+  } else {
+    // Fallback: single neutral beep
+    f[0] = 440; d[0] = 400; du[0] = 128; n = 1;
   }
-  noTone(BUZZER_PIN);
-}
 
-void playToneIfNecessary(String weatherCondition) {
-  unsigned long currentTime = millis();
-
-  if (!isToneActive) {
-    if (weatherCondition == "clear_sky") {
-      toneFrequency = 1000;
-      toneDuration = 500;
-    } else if (weatherCondition == "light_clouds" || weatherCondition == "partly_cloudy") {
-      toneFrequency = 800;
-      toneDuration = 400;
-    } else if (weatherCondition == "cloudy" || weatherCondition == "overcast") {
-      playCloudyMelody();
-      return;
-    } else if (weatherCondition == "rain" || weatherCondition == "rain_shower" || weatherCondition == "drizzle") {
-      toneFrequency = 500 + random(-100, 100);
-      toneDuration = 200;
-    } else if (weatherCondition == "thunderstorm") {
-      toneFrequency = 200;
-      toneDuration = 700;
-    } else if (weatherCondition == "snow" || weatherCondition == "snow_shower") {
-      toneFrequency = 1200;
-      toneDuration = 300;
-    } else if (weatherCondition == "light_fog") {
-      toneFrequency = 400;
-      toneDuration = 800;
-    } else if (weatherCondition == "dense_fog") {
-      toneFrequency = 300;
-      toneDuration = 1000;
-    } else if (weatherCondition == "freezing_rain") {
-      toneFrequency = 700;
-      toneDuration = 300;
-    } else if (weatherCondition == "sandstorm") {
-      toneFrequency = 300 + random(-50, 50);
-      toneDuration = 200;
-    } else {
-      toneFrequency = 0;
-      toneDuration = 0;
-    }
-
-    if (toneFrequency > 0 && toneDuration > 0) {
-      ledc_set_freq(BUZZER_MODE, BUZZER_TIMER, toneFrequency);
-      ledc_set_duty(BUZZER_MODE, BUZZER_CHANNEL, 128);
-      ledc_update_duty(BUZZER_MODE, BUZZER_CHANNEL);
-      toneStartTime = currentTime;
-      isToneActive = true;
-    }
+  // Load into sequencer globals
+  seqLen = n;
+  for (int i = 0; i < n; i++) {
+    seqFreq[i] = f[i]; seqDur[i] = d[i]; seqDuty[i] = du[i];
   }
+  seqIdx       = 0;
+  seqNoteStart = millis();
+  seqActive    = true;
 
-  if (isToneActive && currentTime - toneStartTime >= toneDuration) {
-    ledc_set_duty(BUZZER_MODE, BUZZER_CHANNEL, 0);
+  // Start first note immediately
+  if (seqFreq[0] > 0 && seqDuty[0] > 0) {
+    ledc_set_freq(BUZZER_MODE, BUZZER_TIMER, seqFreq[0]);
+    ledc_set_duty(BUZZER_MODE, BUZZER_CHANNEL, seqDuty[0]);
     ledc_update_duty(BUZZER_MODE, BUZZER_CHANNEL);
-    isToneActive = false;
   }
+}
+
+// Must be called every loop iteration to advance the note sequencer.
+void updateBuzzer() {
+  if (!seqActive) return;
+  unsigned long now = millis();
+  if (now - seqNoteStart < (unsigned long)seqDur[seqIdx]) return;
+
+  // Current note slot finished — silence buzzer and advance
+  ledc_set_duty(BUZZER_MODE, BUZZER_CHANNEL, 0);
+  ledc_update_duty(BUZZER_MODE, BUZZER_CHANNEL);
+
+  seqIdx++;
+  if (seqIdx >= seqLen) {
+    seqActive = false;
+    return;
+  }
+
+  seqNoteStart = now;
+  if (seqFreq[seqIdx] > 0 && seqDuty[seqIdx] > 0) {
+    ledc_set_freq(BUZZER_MODE, BUZZER_TIMER, seqFreq[seqIdx]);
+    ledc_set_duty(BUZZER_MODE, BUZZER_CHANNEL, seqDuty[seqIdx]);
+    ledc_update_duty(BUZZER_MODE, BUZZER_CHANNEL);
+  }
+  // freq==0 or duty==0: rest — stay silent for seqDur[seqIdx] ms
 }
 
 void interpretWeatherSymbol(int code, int temperature) {
@@ -1814,6 +2001,7 @@ void interpretWeatherSymbol(int code, int temperature) {
     default: weatherCondition = "clear_sky"; break;       // Fallback
   }
 
-  playToneIfNecessary(weatherCondition);
+  ledWeatherEffect = weatherCondition;
+  startWeatherMelody(weatherCondition);
   lastWeatherCondition = weatherCondition;
 }

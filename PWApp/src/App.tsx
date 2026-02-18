@@ -3,6 +3,7 @@ import { OnboardingFlow } from './components/onboarding/OnboardingFlow';
 import { OnboardingComplete } from './pages/OnboardingComplete';
 import { WeatherDashboard } from './pages/WeatherDashboard';
 import { MapPage } from './pages/MapPage';
+import { TestPage } from './pages/TestPage';
 import { loadPotatoConfig } from './services/localConnectionService';
 
 function App() {
@@ -28,6 +29,15 @@ function App() {
           element={
             <ProtectedRoute>
               <MapPage />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/test"
+          element={
+            <ProtectedRoute>
+              <TestPage />
             </ProtectedRoute>
           }
         />

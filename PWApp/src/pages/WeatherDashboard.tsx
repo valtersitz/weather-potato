@@ -99,6 +99,13 @@ export const WeatherDashboard = () => {
             >
               🗺️ Map
             </Button>
+            <Button
+              variant="ghost"
+              onClick={() => navigate('/test')}
+              title="Test light & sound"
+            >
+              🔬
+            </Button>
             {!waitingForTouch && (
               <Button
                 variant="secondary"
