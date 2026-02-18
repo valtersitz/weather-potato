@@ -31,6 +31,10 @@
     @apply bg-transparent text-primary hover:bg-primary/10;
   }
 
+  .btn-accent {
+    @apply bg-accent text-white shadow-lg shadow-accent/30 hover:shadow-xl hover:shadow-accent/40 hover:-translate-y-0.5 active:translate-y-0 active:shadow-md;
+  }
+
   .btn-big {
     @apply text-xl px-8 py-5 min-h-[64px];
   }

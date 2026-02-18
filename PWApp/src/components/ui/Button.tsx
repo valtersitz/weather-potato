@@ -1,7 +1,7 @@
 import { ButtonHTMLAttributes, ReactNode } from 'react';
 
 interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
-  variant?: 'primary' | 'secondary' | 'ghost';
+  variant?: 'primary' | 'secondary' | 'ghost' | 'accent';
   size?: 'normal' | 'big';
   children: ReactNode;
   loading?: boolean;
@@ -19,6 +19,7 @@ export const Button = ({
   const baseClass = 'btn';
   const variantClass = variant === 'primary' ? 'btn-primary btn-shine' :
                       variant === 'secondary' ? 'btn-secondary' :
+                      variant === 'accent' ? 'btn-accent' :
                       'btn-ghost';
   const sizeClass = size === 'big' ? 'btn-big' : '';
 
