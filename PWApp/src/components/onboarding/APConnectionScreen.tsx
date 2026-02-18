@@ -34,14 +34,6 @@ export const APConnectionScreen = ({
     }
   };
 
-  const handleOpenWiFiSettings = () => {
-    try {
-      window.location.href = 'App-Prefs:root=WIFI';
-    } catch (err) {
-      console.log('[AP] Deep link not supported, user must open settings manually');
-    }
-  };
-
   const handleOpenSetupPage = () => {
     // Store config data in localStorage for ESP32 page to read
     const configData = {
@@ -59,7 +51,8 @@ export const APConnectionScreen = ({
       ssid: wifiCredentials.ssid,
       password: wifiCredentials.password,
       lat: location.latitude.toString(),
-      lon: location.longitude.toString()
+      lon: location.longitude.toString(),
+      city: location.city || ''
     });
 
     // Redirect to ESP32's setup page
@@ -141,19 +134,11 @@ export const APConnectionScreen = ({
           </div>
 
           <Button
-            onClick={handleCopyPassword}
-            className="w-full mb-2"
-            variant={passwordCopied ? 'secondary' : 'primary'}
-          >
-            {passwordCopied ? '✅ Password Copied!' : '📋 Copy Password'}
-          </Button>
-
-          <Button
-            onClick={handleOpenWiFiSettings}
+            onClick={passwordCopied ? handleOpenSetupPage : handleCopyPassword}
             className="w-full"
-            variant="secondary"
+            variant={passwordCopied ? 'accent' : 'primary'}
           >
-            📶 Open WiFi Settings
+            {passwordCopied ? '🌐 Open Setup Page Now' : '📋 Copy Password'}
           </Button>
 
           <p className="text-xs text-gray-500 mt-2 text-center">

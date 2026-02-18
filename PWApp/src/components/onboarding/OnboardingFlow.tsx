@@ -8,7 +8,7 @@ import { LocationSetup } from './LocationSetup';
 import { ValidationScreen } from './ValidationScreen';
 import { SuccessScreen } from './SuccessScreen';
 import { APConnectionScreen } from './APConnectionScreen';
-import { loadPotatoConfig, savePotatoConfig } from '../../services/localConnectionService';
+import { loadPotatoConfig, savePotatoConfig, clearPotatoConfig, checkDeviceOnline } from '../../services/localConnectionService';
 import { discoverWeatherPotato } from '../../services/discoveryService';
 import { supportsWebBluetooth, isIOS } from '../../utils/platform';
 import { STORAGE_DEVICE_ID } from '../../utils/constants';
@@ -33,29 +33,38 @@ export const OnboardingFlow = () => {
   const [potatoConfig, setPotatoConfig] = useState<PotatoConfig | null>(null);
   const [wifiMode, setWifiMode] = useState<'scan' | 'manual'>('scan');
   const [isAPMode, setIsAPMode] = useState(false); // Track if we're using AP mode instead of BLE
+  const [deviceOffline, setDeviceOffline] = useState(false);
 
   useEffect(() => {
     // Check if device is already configured
-    const existingConfig = loadPotatoConfig();
-    if (existingConfig && existingConfig.setup_complete) {
-      // Already setup, redirect to dashboard
-      console.log('[OnboardingFlow] Device already configured, redirecting to dashboard');
-      navigate('/dashboard');
-      return;
-    }
+    const savedConfig = loadPotatoConfig();
 
-    // Auto-discover devices on the network
     const tryAutoDiscover = async () => {
       setIsDiscovering(true);
-      console.log('[OnboardingFlow] Attempting auto-discovery...');
 
+      if (savedConfig && savedConfig.setup_complete) {
+        // Config exists — check if device is actually reachable via relay
+        console.log('[OnboardingFlow] Config exists, checking device online status...');
+        const online = await checkDeviceOnline(savedConfig.device_id);
+        if (online) {
+          console.log('[OnboardingFlow] ✅ Device online, redirecting to dashboard');
+          navigate('/dashboard');
+          return;
+        } else {
+          console.log('[OnboardingFlow] ⚠️ Device offline — staying on welcome screen');
+          setDeviceOffline(true);
+          setIsDiscovering(false);
+          return;
+        }
+      }
+
+      // No config — try local mDNS auto-discovery
+      console.log('[OnboardingFlow] No config, attempting auto-discovery...');
       try {
         const result = await discoverWeatherPotato();
-
         if (result.found && result.config) {
           console.log('[OnboardingFlow] ✅ Auto-discovered device!', result.config);
           savePotatoConfig(result.config);
-          // Redirect to dashboard
           navigate('/dashboard');
         } else {
           console.log('[OnboardingFlow] No device found, showing onboarding');
@@ -197,6 +206,9 @@ export const OnboardingFlow = () => {
           onStart={handleStart}
           deviceId={deviceId}
           isDiscovering={isDiscovering}
+          deviceOffline={deviceOffline}
+          onGoToDashboard={() => navigate('/dashboard')}
+          onReconfigure={() => { clearPotatoConfig(); setDeviceOffline(false); }}
         />
       )}
 

@@ -169,3 +169,24 @@ export const loadPotatoConfig = (): PotatoConfig | null => {
 export const clearPotatoConfig = (): void => {
   localStorage.removeItem('potato_config');
 };
+
+/**
+ * Check if a device is currently connected to the relay.
+ * Returns true if the relay confirms the device is online, false otherwise.
+ * Times out after 4 seconds.
+ */
+export const checkDeviceOnline = async (deviceId: string): Promise<boolean> => {
+  try {
+    const relayBase = (import.meta.env.VITE_RELAY_URL || 'ws://localhost:3000')
+      .replace(/^wss:\/\//, 'https://')
+      .replace(/^ws:\/\//, 'http://');
+    const res = await fetch(`${relayBase}/status/${deviceId}`, {
+      signal: AbortSignal.timeout(4000)
+    });
+    if (!res.ok) return false;
+    const data = await res.json();
+    return data.online === true;
+  } catch {
+    return false;
+  }
+};

@@ -8,7 +8,6 @@
 #include <Wire.h>
 #include <ArduinoJson.h>
 #include <time.h>
-#include "root_ca.h"
 #include <WebServer.h>
 #include <Update.h>
 #include <ESPmDNS.h>
@@ -120,10 +119,8 @@ Adafruit_NeoPixel strip = Adafruit_NeoPixel(NUM_LEDS, LED_PIN, NEO_GRB + NEO_KHZ
 int weatherSymbol;
 int currentTemperature;
 
-// Meteomatics API
-String apiUser = "myself_pro_card";
-String apiPass = "j4G22VmrUE";
-String apiUrlBase = "https://api.meteomatics.com/";
+// Open-Meteo API (free, no key required)
+const char* weatherApiBase = "https://api.open-meteo.com/v1/forecast";
 
 // NTP
 const char* ntpServer = "pool.ntp.org";
@@ -161,8 +158,6 @@ void handleConfigSubmission();
 void handleLocationSubmission();
 void handleOTAPage();
 void handleOTAUpdate();
-String encodeBase64(String input);
-String getCurrentISOTime();
 void playCloudyMelody();
 
 // ============================================================================
@@ -679,7 +674,9 @@ void handleSetupPage() {
     <div id="message" class="message"></div>
 
     <form id="configForm">
-      <div class="form-group">
+      <button type="submit" id="submitBtn">Send Configuration</button>
+
+      <div class="form-group" style="margin-top: 20px;">
         <label>WiFi Network (SSID)</label>
         <input type="text" id="ssid" required>
       </div>
@@ -691,18 +688,11 @@ void handleSetupPage() {
       </div>
 
       <div class="form-group">
-        <label>Latitude</label>
-        <input type="text" id="latitude" pattern="-?[0-9]+\.?[0-9]*" required placeholder="48.888590">
-        <small>Full precision (e.g., 48.888590317034)</small>
+        <label>Location</label>
+        <input type="text" id="city" readonly style="background: #f5f5f5; cursor: default;">
+        <input type="hidden" id="latitude">
+        <input type="hidden" id="longitude">
       </div>
-
-      <div class="form-group">
-        <label>Longitude</label>
-        <input type="text" id="longitude" pattern="-?[0-9]+\.?[0-9]*" required placeholder="2.381029">
-        <small>Full precision (e.g., 2.381029489226)</small>
-      </div>
-
-      <button type="submit" id="submitBtn">Send Configuration</button>
     </form>
   </div>
 
@@ -716,6 +706,7 @@ void handleSetupPage() {
       document.getElementById('password').value = params.get('password') || '';
       document.getElementById('latitude').value = params.get('lat') || '';
       document.getElementById('longitude').value = params.get('lon') || '';
+      document.getElementById('city').value = params.get('city') || (params.get('lat') + ', ' + params.get('lon'));
     } else if (stored) {
       try {
         const data = JSON.parse(stored);
@@ -723,6 +714,7 @@ void handleSetupPage() {
         document.getElementById('password').value = data.password || '';
         document.getElementById('latitude').value = data.latitude || '';
         document.getElementById('longitude').value = data.longitude || '';
+        document.getElementById('city').value = data.city || (data.latitude + ', ' + data.longitude);
       } catch (e) {}
     }
 
@@ -742,7 +734,7 @@ void handleSetupPage() {
               Network: ${data.ssid}<br>
               IP: ${data.ip}<br><br>
               <strong>Success!</strong> Reconnect to "${data.ssid}" WiFi and open the PWA!<br><br>
-              <small>Redirecting in 3 seconds...</small>
+              <small>Redirecting in 1 second...</small>
             `;
 
             // Get device ID and redirect to PWA
@@ -758,13 +750,13 @@ void handleSetupPage() {
                   redirectUrl.searchParams.set('ssid', data.ssid);
                   redirectUrl.searchParams.set('ip', data.ip);
                   window.location.href = redirectUrl.toString();
-                }, 3000);
+                }, 1000);
               })
               .catch(() => {
                 // Fallback: redirect to dashboard without device ID
                 setTimeout(() => {
                   window.location.href = 'https://weather-potato-vercel-127v.vercel.app/dashboard';
-                }, 3000);
+                }, 1000);
               });
           } else if (data.status === 'connecting') {
             message.className = 'message info';
@@ -1129,7 +1121,10 @@ String processLocalRequest(const char* method, const char* path, JsonVariant bod
 }
 
 void handleWebSocketMessage(const char* payload) {
-  StaticJsonDocument<1024> doc;
+  // Use DynamicJsonDocument (heap) instead of StaticJsonDocument (stack)
+  // to avoid stack overflow — 4KB of static buffers on the stack caused a
+  // Double Exception crash when handling POST /location requests.
+  DynamicJsonDocument doc(1024);
   DeserializationError error = deserializeJson(doc, payload);
 
   if (error) {
@@ -1142,23 +1137,24 @@ void handleWebSocketMessage(const char* payload) {
     return;  // Ignore non-request messages
   }
 
-  const char* requestId = doc["id"];
+  // Copy strings before doc goes out of scope in nested calls
+  String requestId = doc["id"].as<String>();
   const char* method = doc["method"];
   const char* path = doc["path"];
 
-  Serial.printf("[WS] Request: %s %s (id=%s)\n", method, path, requestId);
+  Serial.printf("[WS] Request: %s %s (id=%s)\n", method, path, requestId.c_str());
 
   // Process request internally
   String responseData = processLocalRequest(method, path, doc["body"]);
 
   // Send response back to relay
-  StaticJsonDocument<2048> responseDoc;
+  DynamicJsonDocument responseDoc(1024);
   responseDoc["id"] = requestId;
   responseDoc["type"] = "response";
   responseDoc["status"] = 200;
 
   // Parse response data into JSON object
-  StaticJsonDocument<1024> dataDoc;
+  DynamicJsonDocument dataDoc(512);
   deserializeJson(dataDoc, responseData);
   responseDoc["data"] = dataDoc.as<JsonObject>();
 
@@ -1559,87 +1555,37 @@ void loop() {
 // WEATHER & API FUNCTIONS
 // ============================================================================
 
-String getCurrentISOTime() {
-  struct tm timeinfo;
-  if (!getLocalTime(&timeinfo)) {
-    Serial.println("Failed to obtain time");
-    return "2024-10-18T12:00:00Z";
-  }
-
-  char isoTime[30];
-  strftime(isoTime, sizeof(isoTime), "%Y-%m-%dT%H:%M:%SZ", &timeinfo);
-  return String(isoTime);
-}
-
-String encodeBase64(String input) {
-  const char base64_chars[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-  String encoded = "";
-  int i = 0, j = 0;
-  unsigned char char_array_3[3], char_array_4[4];
-
-  for (size_t n = 0; n < input.length(); n++) {
-    char_array_3[i++] = input[n];
-    if (i == 3) {
-      char_array_4[0] = (char_array_3[0] & 0xfc) >> 2;
-      char_array_4[1] = ((char_array_3[0] & 0x03) << 4) + ((char_array_3[1] & 0xf0) >> 4);
-      char_array_4[2] = ((char_array_3[1] & 0x0f) << 2) + ((char_array_3[2] & 0xc0) >> 6);
-      char_array_4[3] = char_array_3[2] & 0x3f;
-
-      for (i = 0; (i < 4); i++)
-        encoded += base64_chars[char_array_4[i]];
-      i = 0;
-    }
-  }
-
-  if (i) {
-    for (j = i; j < 3; j++)
-      char_array_3[j] = '\0';
-
-    char_array_4[0] = (char_array_3[0] & 0xfc) >> 2;
-    char_array_4[1] = ((char_array_3[0] & 0x03) << 4) + ((char_array_3[1] & 0xf0) >> 4);
-    char_array_4[2] = ((char_array_3[1] & 0x0f) << 2) + ((char_array_3[2] & 0xc0) >> 6);
-    char_array_4[3] = char_array_3[2] & 0x3f;
-
-    for (j = 0; (j < i + 1); j++)
-      encoded += base64_chars[char_array_4[j]];
-
-    while ((i++ < 3))
-      encoded += '=';
-  }
-
-  return encoded;
-}
-
 void getWeatherForecast(int &code, int &temperature) {
   if (WiFi.status() != WL_CONNECTED) {
     Serial.println("WiFi not connected");
     return;
   }
 
-  HTTPClient http;
-  String currentISOTime = getCurrentISOTime();
-  String apiUrl = apiUrlBase + currentISOTime + "/t_2m:C,weather_symbol_1h:idx/" +
-                  String(latitude, 6) + "," + String(longitude, 6) + "/json?model=mix";
+  WiFiClientSecure client;
+  client.setCACert(isrg_root_x1_ca);  // Open-Meteo uses Let's Encrypt (ISRG Root X1)
 
-  String auth = apiUser + ":" + apiPass;
-  String encodedAuth = encodeBase64(auth);
+  HTTPClient http;
+  String apiUrl = String(weatherApiBase) + "?latitude=" +
+                  String(latitude, 4) + "&longitude=" + String(longitude, 4) +
+                  "&current=temperature_2m,weather_code";
 
   Serial.println("API URL: " + apiUrl);
 
-  http.begin(apiUrl);
-  http.addHeader("Authorization", "Basic " + encodedAuth);
+  http.begin(client, apiUrl);
 
   int httpResponseCode = http.GET();
   if (httpResponseCode > 0) {
     String payload = http.getString();
-    StaticJsonDocument<1024> doc;
+    Serial.println("Response: " + payload);
+
+    StaticJsonDocument<512> doc;
     DeserializationError error = deserializeJson(doc, payload);
 
     if (!error) {
       parseWeatherSymbol(doc, code, temperature);
       Serial.printf("Weather Code: %d, Temperature: %d°C\n", code, temperature);
     } else {
-      Serial.println("JSON deserialization error");
+      Serial.printf("JSON deserialization error: %s\n", error.c_str());
     }
   } else {
     Serial.printf("HTTP Error: %d\n", httpResponseCode);
@@ -1653,19 +1599,14 @@ void parseWeatherSymbol(JsonDocument &doc, int &code, int &temperature) {
   code = -1;
   temperature = -999;
 
-  JsonArray dataArray = doc["data"];
-
-  for (JsonObject dataObject : dataArray) {
-    const char* parameter = dataObject["parameter"];
-
-    if (strcmp(parameter, "t_2m:C") == 0) {
-      temperature = dataObject["coordinates"][0]["dates"][0]["value"];
-    }
-
-    if (strcmp(parameter, "weather_symbol_1h:idx") == 0) {
-      code = dataObject["coordinates"][0]["dates"][0]["value"];
-    }
+  JsonObject current = doc["current"];
+  if (current.isNull()) {
+    Serial.println("[Weather] No 'current' object in response");
+    return;
   }
+
+  temperature = (int)current["temperature_2m"].as<float>();
+  code = current["weather_code"].as<int>();
 
   lastTemperature = temperature;
 }
@@ -1818,31 +1759,40 @@ void playToneIfNecessary(String weatherCondition) {
 }
 
 void interpretWeatherSymbol(int code, int temperature) {
-  if (code >= 100) {
-    code -= 100;
-  }
-
+  // WMO Weather Interpretation Codes (Open-Meteo)
+  // https://open-meteo.com/en/docs
   String weatherCondition = "";
 
   switch (code) {
-    case 0: weatherCondition = ""; break;
-    case 1: weatherCondition = "clear_sky"; break;
-    case 2: weatherCondition = "light_clouds"; break;
-    case 3: weatherCondition = "partly_cloudy"; break;
-    case 4: weatherCondition = "cloudy"; break;
-    case 5: weatherCondition = "rain"; break;
-    case 6: weatherCondition = "rain_and_snow"; break;
-    case 7: weatherCondition = "snow"; break;
-    case 8: weatherCondition = "rain_shower"; break;
-    case 9: weatherCondition = "snow_shower"; break;
-    case 10: weatherCondition = "sleet_shower"; break;
-    case 11: weatherCondition = "light_fog"; break;
-    case 12: weatherCondition = "dense_fog"; break;
-    case 13: weatherCondition = "freezing_rain"; break;
-    case 14: weatherCondition = "thunderstorm"; break;
-    case 15: weatherCondition = "drizzle"; break;
-    case 16: weatherCondition = "sandstorm"; break;
-    default: weatherCondition = ""; break;
+    case 0:  weatherCondition = "clear_sky"; break;       // Clear sky
+    case 1:  weatherCondition = "light_clouds"; break;    // Mainly clear
+    case 2:  weatherCondition = "partly_cloudy"; break;   // Partly cloudy
+    case 3:  weatherCondition = "cloudy"; break;          // Overcast
+    case 45: weatherCondition = "light_fog"; break;       // Fog
+    case 48: weatherCondition = "dense_fog"; break;       // Depositing rime fog
+    case 51:                                              // Light drizzle
+    case 53:                                              // Moderate drizzle
+    case 55: weatherCondition = "drizzle"; break;         // Dense drizzle
+    case 56:                                              // Light freezing drizzle
+    case 57: weatherCondition = "freezing_rain"; break;   // Dense freezing drizzle
+    case 61:                                              // Slight rain
+    case 63:                                              // Moderate rain
+    case 65: weatherCondition = "rain"; break;            // Heavy rain
+    case 66:                                              // Light freezing rain
+    case 67: weatherCondition = "freezing_rain"; break;   // Heavy freezing rain
+    case 71:                                              // Slight snowfall
+    case 73:                                              // Moderate snowfall
+    case 75:                                              // Heavy snowfall
+    case 77: weatherCondition = "snow"; break;            // Snow grains
+    case 80:                                              // Slight rain showers
+    case 81:                                              // Moderate rain showers
+    case 82: weatherCondition = "rain_shower"; break;     // Violent rain showers
+    case 85:                                              // Slight snow showers
+    case 86: weatherCondition = "snow_shower"; break;     // Heavy snow showers
+    case 95: weatherCondition = "thunderstorm"; break;    // Thunderstorm
+    case 96:                                              // Thunderstorm with slight hail
+    case 99: weatherCondition = "thunderstorm"; break;    // Thunderstorm with heavy hail
+    default: weatherCondition = "clear_sky"; break;       // Fallback
   }
 
   playToneIfNecessary(weatherCondition);

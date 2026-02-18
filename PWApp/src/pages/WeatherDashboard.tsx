@@ -4,7 +4,7 @@ import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { Loader } from '../components/ui/Loader';
 import { WeatherPotato } from '../components/weather/WeatherPotato';
-import { loadPotatoConfig } from '../services/localConnectionService';
+import { loadPotatoConfig, clearPotatoConfig } from '../services/localConnectionService';
 import { connectionService } from '../services/connectionService';
 import type { PotatoConfig } from '../types';
 
@@ -123,14 +123,22 @@ export const WeatherDashboard = () => {
             </div>
           ) : error ? (
             <div className="text-center py-12">
-              <div className="text-6xl mb-4">⚠️</div>
+              <div className="text-6xl mb-4">📡</div>
               <h2 className="text-2xl font-bold text-error mb-2">
-                Connection Error
+                Device Unreachable
               </h2>
               <p className="text-gray-600 mb-6">{error}</p>
-              <Button onClick={fetchWeather}>
-                Try Again
-              </Button>
+              <div className="flex flex-col gap-3 max-w-xs mx-auto">
+                <Button onClick={fetchWeather}>
+                  Try Again
+                </Button>
+                <Button
+                  variant="secondary"
+                  onClick={() => { clearPotatoConfig(); navigate('/'); }}
+                >
+                  Reconfigure Device
+                </Button>
+              </div>
             </div>
           ) : weather ? (
             <div>

@@ -4,16 +4,36 @@ import { WebSocketServer } from 'ws';
 const PORT = process.env.PORT || 3000;
 
 // HTTP server for health checks (Railway needs this)
+const CORS_HEADERS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type',
+};
+
 const httpServer = createServer((req, res) => {
+  // Handle CORS preflight
+  if (req.method === 'OPTIONS') {
+    res.writeHead(204, CORS_HEADERS);
+    res.end();
+    return;
+  }
+
   if (req.url === '/health' || req.url === '/') {
-    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.writeHead(200, { 'Content-Type': 'application/json', ...CORS_HEADERS });
     res.end(JSON.stringify({
       status: 'ok',
       devices: devices.size,
       timestamp: Date.now()
     }));
+  } else if (req.url.startsWith('/status/')) {
+    // Check if a specific device is currently connected
+    const deviceId = req.url.slice('/status/'.length);
+    const deviceWs = devices.get(deviceId);
+    const online = !!(deviceWs && deviceWs.readyState === 1);
+    res.writeHead(200, { 'Content-Type': 'application/json', ...CORS_HEADERS });
+    res.end(JSON.stringify({ device_id: deviceId, online }));
   } else {
-    res.writeHead(404);
+    res.writeHead(404, CORS_HEADERS);
     res.end('Not found');
   }
 });

@@ -9,6 +9,9 @@ interface WelcomeScreenProps {
   onStart: () => void;
   deviceId: string;
   isDiscovering?: boolean;
+  deviceOffline?: boolean;
+  onGoToDashboard?: () => void;
+  onReconfigure?: () => void;
 }
 
 interface BeforeInstallPromptEvent extends Event {
@@ -16,7 +19,7 @@ interface BeforeInstallPromptEvent extends Event {
   userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }>;
 }
 
-export const WelcomeScreen = ({ onStart, deviceId, isDiscovering = false }: WelcomeScreenProps) => {
+export const WelcomeScreen = ({ onStart, deviceId, isDiscovering = false, deviceOffline = false, onGoToDashboard, onReconfigure }: WelcomeScreenProps) => {
   const { t } = useI18n();
   const capabilities = checkBrowserSupport();
   const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
@@ -71,18 +74,46 @@ export const WelcomeScreen = ({ onStart, deviceId, isDiscovering = false }: Welc
         {isDiscovering && (
           <div className="mb-6 p-4 bg-primary/10 rounded-xl">
             <p className="text-sm text-gray-700">
-              🔍 Scanning network for Weather Potato devices...
+              🔍 Checking for your Weather Potato...
             </p>
           </div>
         )}
 
-        {deviceId && (
+        {deviceOffline && !isDiscovering && (
+          <div className="mb-6 p-4 bg-warning/20 rounded-xl text-left">
+            <p className="text-sm font-semibold text-gray-800 mb-1">
+              📡 Your Potato isn't reachable right now
+            </p>
+            <p className="text-xs text-gray-600 mb-3">
+              It may not be connected to the internet yet, or the relay is temporarily unavailable.
+            </p>
+            <div className="space-y-2">
+              <Button
+                variant="accent"
+                onClick={onGoToDashboard}
+                className="w-full"
+              >
+                Go to Dashboard Anyway
+              </Button>
+              <Button
+                variant="secondary"
+                onClick={onReconfigure}
+                className="w-full"
+              >
+                Reconfigure Device
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {deviceId && !deviceOffline && (
           <div className="mb-6 p-4 bg-secondary/10 rounded-xl">
             <p className="text-sm text-gray-600 mb-1">Device ID</p>
             <p className="text-lg font-bold text-secondary">{deviceId}</p>
           </div>
         )}
 
+        {!deviceOffline && (
         <div className="space-y-4">
           <Button
             size="big"
@@ -102,8 +133,9 @@ export const WelcomeScreen = ({ onStart, deviceId, isDiscovering = false }: Welc
             </Button>
           )}
         </div>
+        )}
 
-        {!capabilities.bluetooth && (
+        {!capabilities.bluetooth && !deviceOffline && (
           <div className="mt-6 p-4 bg-warning/20 rounded-xl">
             <p className="text-sm text-gray-700">
               ⚠️ {t('ble.notSupportedDesc')}
