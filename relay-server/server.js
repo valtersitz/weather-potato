@@ -126,9 +126,16 @@ wss.on('connection', (ws) => {
 
   ws.on('close', () => {
     if (ws.deviceId) {
-      console.log(`[Relay] Device disconnected: ${ws.deviceId}`);
-      devices.delete(ws.deviceId);
-      console.log(`[Relay] Total devices online: ${devices.size}`);
+      // Only evict from the registry if this is still the active connection.
+      // If the device reconnected before this close fires, the newer WS
+      // already replaced this one in `devices` — don't delete that fresh entry.
+      if (devices.get(ws.deviceId) === ws) {
+        devices.delete(ws.deviceId);
+        console.log(`[Relay] Device disconnected: ${ws.deviceId}`);
+        console.log(`[Relay] Total devices online: ${devices.size}`);
+      } else {
+        console.log(`[Relay] Stale connection closed for ${ws.deviceId} (already re-registered)`);
+      }
     } else {
       // Clean up subscriber entry
       if (ws.subscribedTo) {
