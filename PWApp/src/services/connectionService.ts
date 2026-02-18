@@ -9,7 +9,7 @@ interface PendingRequest {
 
 interface WebSocketMessage {
   id?: string;
-  type: 'request' | 'response' | 'error';
+  type: 'request' | 'response' | 'error' | 'push' | 'subscribe';
   device_id?: string;
   method?: string;
   path?: string;
@@ -25,9 +25,10 @@ class ConnectionService {
   private pendingRequests = new Map<string, PendingRequest>();
   private reconnectAttempts = 0;
   private maxReconnectAttempts = 5;
-  private reconnectDelay = 1000; // Start with 1 second
+  private reconnectDelay = 1000;
   private isConnecting = false;
-  private requestTimeout = 10000; // 10 seconds
+  private requestTimeout = 10000;
+  private pushListeners: Array<(data: any) => void> = [];
 
   /**
    * Initialize connection to relay server
@@ -59,6 +60,15 @@ class ConnectionService {
         this.reconnectAttempts = 0;
         this.reconnectDelay = 1000;
         this.isConnecting = false;
+
+        // Subscribe to push updates from this device
+        if (this.config) {
+          this.ws!.send(JSON.stringify({
+            type: 'subscribe',
+            device_id: this.config.device_id
+          }));
+          console.log('[ConnectionService] Subscribed to push updates from', this.config.device_id);
+        }
       };
 
       this.ws.onmessage = (event) => {
@@ -91,7 +101,12 @@ class ConnectionService {
       const msg: WebSocketMessage = JSON.parse(data);
       console.log('[ConnectionService] Received message:', msg.type, msg.id);
 
-      if (msg.type === 'response' && msg.id) {
+      if (msg.type === 'push') {
+        // Device pushed weather data (triggered by physical touch)
+        console.log('[ConnectionService] 📡 Push received from device:', msg.data);
+        this.pushListeners.forEach(listener => listener(msg.data));
+
+      } else if (msg.type === 'response' && msg.id) {
         const pending = this.pendingRequests.get(msg.id);
         if (pending) {
           pending.resolve(msg.data);
@@ -110,12 +125,22 @@ class ConnectionService {
   }
 
   /**
+   * Register a listener for push events from the device.
+   * Returns an unsubscribe function.
+   */
+  onPush(listener: (data: any) => void): () => void {
+    this.pushListeners.push(listener);
+    return () => {
+      this.pushListeners = this.pushListeners.filter(l => l !== listener);
+    };
+  }
+
+  /**
    * Handle reconnection with exponential backoff
    */
   private handleReconnect(): void {
     if (this.reconnectAttempts >= this.maxReconnectAttempts) {
       console.error('[ConnectionService] Max reconnect attempts reached');
-      // Reject all pending requests
       this.pendingRequests.forEach((pending) => {
         pending.reject(new Error('Connection lost and max reconnect attempts reached'));
       });
@@ -137,7 +162,7 @@ class ConnectionService {
    * Wait for WebSocket to be ready
    */
   private async waitForConnection(): Promise<void> {
-    const maxWait = 5000; // 5 seconds
+    const maxWait = 5000;
     const startTime = Date.now();
 
     while (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
@@ -156,15 +181,11 @@ class ConnectionService {
       throw new Error('ConnectionService not initialized. Call init() first.');
     }
 
-    // Wait for connection to be ready
     await this.waitForConnection();
 
-    // Generate unique request ID
     const requestId = crypto.randomUUID();
 
-    // Create promise for this request
     const promise = new Promise((resolve, reject) => {
-      // Set timeout for this request
       const timeoutId = setTimeout(() => {
         this.pendingRequests.delete(requestId);
         reject(new Error(`Request timeout after ${this.requestTimeout}ms`));
@@ -183,7 +204,6 @@ class ConnectionService {
       });
     });
 
-    // Send request through WebSocket
     const message: WebSocketMessage = {
       id: requestId,
       type: 'request',
@@ -209,7 +229,7 @@ class ConnectionService {
       this.ws = null;
     }
     this.pendingRequests.clear();
-    this.reconnectAttempts = this.maxReconnectAttempts; // Prevent auto-reconnect
+    this.reconnectAttempts = this.maxReconnectAttempts;
   }
 
   /**

@@ -176,8 +176,8 @@ export const MapPage = () => {
       setCoordinates(tempCoordinates);
       setSuccess(true);
 
-      // Auto-hide success message after 3 seconds
-      setTimeout(() => setSuccess(false), 3000);
+      // Navigate back to dashboard after 1 second so user touches the potato
+      setTimeout(() => navigate('/dashboard'), 1000);
     } catch (err) {
       console.error('[Map] Error updating location:', err);
       setError(err instanceof Error ? err.message : 'Failed to update location');
@@ -229,9 +229,19 @@ export const MapPage = () => {
 
         {/* Map Card */}
         <Card className="mb-6">
-          <h2 className="text-xl font-bold mb-4 text-gray-700">
-            Set Weather Location
-          </h2>
+          {/* Card header: title + validate button */}
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-xl font-bold text-gray-700">
+              Set Weather Location
+            </h2>
+            <Button
+              onClick={handleUpdateLocation}
+              disabled={!hasChanges || loading}
+              loading={loading}
+            >
+              {loading ? 'Updating...' : '🌤️ Get Weather from There'}
+            </Button>
+          </div>
 
           {/* City Search */}
           <div className="mb-4 relative">
@@ -305,16 +315,6 @@ export const MapPage = () => {
             </p>
           </div>
 
-          {/* Get Weather Button (directly below map) */}
-          <Button
-            onClick={handleUpdateLocation}
-            disabled={!hasChanges || loading}
-            loading={loading}
-            className="w-full mb-4"
-          >
-            {loading ? 'Updating Location...' : '🌤️ Get Weather from There'}
-          </Button>
-
           {/* Use My Location Button */}
           <Button
             variant="secondary"
@@ -328,7 +328,7 @@ export const MapPage = () => {
           {success && (
             <div className="mb-4 p-4 bg-success/20 rounded-xl">
               <p className="text-success font-semibold">
-                ✅ Location updated! Weather Potato will fetch weather for this location.
+                ✅ Location updated! Going back to dashboard — touch your Potato to get the weather!
               </p>
             </div>
           )}

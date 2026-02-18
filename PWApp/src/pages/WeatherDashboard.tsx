@@ -24,37 +24,36 @@ export const WeatherDashboard = () => {
   const navigate = useNavigate();
   const [config, setConfig] = useState<PotatoConfig | null>(null);
   const [weather, setWeather] = useState<WeatherResponse | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string>('');
   const [showDebug, setShowDebug] = useState(false);
-  const [autoRefresh, setAutoRefresh] = useState(true);
+  // Start in "waiting for touch" mode — user must touch the physical potato
+  const [waitingForTouch, setWaitingForTouch] = useState(true);
 
   useEffect(() => {
-    // Load potato config
     const savedConfig = loadPotatoConfig();
     if (!savedConfig || !savedConfig.setup_complete) {
-      // Not configured yet, redirect to onboarding
       navigate('/');
       return;
     }
     setConfig(savedConfig);
-
-    // Initialize connection service
     connectionService.init(savedConfig);
   }, [navigate]);
 
+  // Listen for push events from the physical potato touch
   useEffect(() => {
     if (!config) return;
 
-    // Initial fetch
-    fetchWeather();
+    const unsubscribe = connectionService.onPush((weatherData: WeatherResponse) => {
+      console.log('[Dashboard] 🥔 Push received — updating weather:', weatherData);
+      setWeather(weatherData);
+      setWaitingForTouch(false);
+      setLoading(false);
+      setError('');
+    });
 
-    // Auto-refresh every 30 seconds if enabled
-    if (autoRefresh) {
-      const interval = setInterval(fetchWeather, 30000);
-      return () => clearInterval(interval);
-    }
-  }, [config, autoRefresh]);
+    return unsubscribe;
+  }, [config]);
 
   const fetchWeather = async () => {
     if (!config) return;
@@ -64,21 +63,17 @@ export const WeatherDashboard = () => {
       setError('');
 
       console.log('[Dashboard] Fetching weather via relay for device:', config.device_id);
-
       const data: WeatherResponse = await connectionService.request('GET', '/weather');
       console.log('[Dashboard] Weather data:', data);
 
       setWeather(data);
+      setWaitingForTouch(false);
     } catch (err) {
       console.error('[Dashboard] Error fetching weather:', err);
       setError(err instanceof Error ? err.message : 'Failed to fetch weather');
     } finally {
       setLoading(false);
     }
-  };
-
-  const handleNavigateToMap = () => {
-    navigate('/map');
   };
 
   if (!config) {
@@ -100,28 +95,58 @@ export const WeatherDashboard = () => {
           <div className="flex gap-2">
             <Button
               variant="secondary"
-              onClick={handleNavigateToMap}
+              onClick={() => navigate('/map')}
             >
               🗺️ Map
             </Button>
-            <Button
-              variant="secondary"
-              onClick={fetchWeather}
-              disabled={loading}
-            >
-              🔄 Refresh
-            </Button>
+            {!waitingForTouch && (
+              <Button
+                variant="secondary"
+                onClick={fetchWeather}
+                disabled={loading}
+              >
+                🔄 Refresh
+              </Button>
+            )}
           </div>
         </div>
 
         {/* Main Weather Card */}
         <Card className="mb-6">
-          {loading && !weather ? (
+          {waitingForTouch ? (
+            /* Touch prompt */
+            <div className="flex flex-col items-center justify-center py-12 text-center">
+              <div
+                className="text-8xl mb-6 cursor-pointer select-none transition-transform active:scale-90 hover:scale-105"
+                onClick={fetchWeather}
+                title="Tap to fetch weather now"
+              >
+                🥔
+              </div>
+              <h2 className="text-2xl font-bold gradient-text mb-3">
+                Touch your Potato!
+              </h2>
+              <p className="text-gray-500 text-sm mb-6 max-w-xs">
+                Give your physical Weather Potato a tap to fetch the latest weather — or tap the potato above to pull it manually.
+              </p>
+              {loading && (
+                <div className="flex flex-col items-center gap-3">
+                  <Loader />
+                  <p className="text-gray-500 text-sm">Fetching weather...</p>
+                </div>
+              )}
+              {error && (
+                <div className="mt-4 p-3 bg-error/10 rounded-xl text-error text-sm">
+                  {error}
+                </div>
+              )}
+            </div>
+          ) : loading && !weather ? (
             <div className="flex flex-col items-center justify-center py-12">
               <Loader />
               <p className="mt-4 text-gray-600">Fetching weather data...</p>
             </div>
-          ) : error ? (
+          ) : error && !weather ? (
             <div className="text-center py-12">
               <div className="text-6xl mb-4">📡</div>
               <h2 className="text-2xl font-bold text-error mb-2">
@@ -142,13 +167,11 @@ export const WeatherDashboard = () => {
             </div>
           ) : weather ? (
             <div>
-              {/* Cute Potato Character */}
               <WeatherPotato
                 condition={weather.condition}
                 temperature={weather.temperature}
               />
 
-              {/* Temperature Display */}
               <div className="text-center mt-6">
                 <div className="text-7xl font-bold gradient-text mb-2">
                   {Math.round(weather.temperature)}°C
@@ -164,20 +187,9 @@ export const WeatherDashboard = () => {
                 </div>
               </div>
 
-              {/* Auto-refresh toggle */}
-              <div className="flex items-center justify-center gap-3 mt-6 p-4 bg-gray-50 rounded-xl">
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={autoRefresh}
-                    onChange={(e) => setAutoRefresh(e.target.checked)}
-                    className="w-4 h-4"
-                  />
-                  <span className="text-sm text-gray-600">
-                    Auto-refresh every 30s
-                  </span>
-                </label>
-              </div>
+              <p className="text-center text-xs text-gray-400 mt-6">
+                Touch your Potato to refresh — or tap 🔄 above
+              </p>
             </div>
           ) : null}
         </Card>

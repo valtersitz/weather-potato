@@ -1532,6 +1532,25 @@ void loop() {
         getWeatherForecast(weatherSymbol, currentTemperature);
         interpretWeatherSymbol(weatherSymbol, currentTemperature);
         setLEDRGB(currentTemperature);
+
+        // Push weather update to PWA via relay
+        if (wsConnected) {
+          DynamicJsonDocument pushDoc(512);
+          pushDoc["type"] = "push";
+          pushDoc["device_id"] = deviceId;
+          JsonObject pushData = pushDoc.createNestedObject("data");
+          pushData["condition"] = lastWeatherCondition;
+          pushData["temperature"] = lastTemperature;
+          pushData["symbol"] = weatherSymbol;
+          JsonObject pushLoc = pushData.createNestedObject("location");
+          pushLoc["latitude"] = latitude;
+          pushLoc["longitude"] = longitude;
+          pushData["timestamp"] = millis();
+          String pushMsg;
+          serializeJson(pushDoc, pushMsg);
+          wsClient.sendTXT(pushMsg);
+          Serial.println("[WS] Pushed weather update to PWA");
+        }
       } else {
         Serial.println("WiFi not connected, skipping weather fetch");
       }

@@ -41,8 +41,10 @@ const httpServer = createServer((req, res) => {
 // WebSocket server attached to HTTP server
 const wss = new WebSocketServer({ server: httpServer });
 
-// Registry: device_id → WebSocket connection
+// Registry: device_id → WebSocket connection (ESP32 devices)
 const devices = new Map();
+// Subscribers: device_id → Set<WebSocket> (PWA clients watching a device)
+const subscribers = new Map();
 
 wss.on('connection', (ws) => {
   console.log('[Relay] New connection established');
@@ -59,6 +61,27 @@ wss.on('connection', (ws) => {
         ws.deviceId = deviceId;
         console.log(`[Relay] ✅ Device registered: ${deviceId}`);
         console.log(`[Relay] Total devices online: ${devices.size}`);
+
+      } else if (msg.type === 'subscribe') {
+        // PWA subscribes to push updates from a device
+        const deviceId = msg.device_id;
+        if (!subscribers.has(deviceId)) subscribers.set(deviceId, new Set());
+        subscribers.get(deviceId).add(ws);
+        ws.subscribedTo = deviceId;
+        console.log(`[Relay] 📺 PWA subscribed to device: ${deviceId}`);
+
+      } else if (msg.type === 'push') {
+        // ESP32 pushing weather data to subscribed PWA clients
+        const deviceId = msg.device_id;
+        const subs = subscribers.get(deviceId);
+        if (subs && subs.size > 0) {
+          console.log(`[Relay] 📡 Pushing weather data from ${deviceId} to ${subs.size} subscriber(s)`);
+          subs.forEach((subWs) => {
+            if (subWs.readyState === 1) subWs.send(data.toString());
+          });
+        } else {
+          console.log(`[Relay] ℹ️  Push from ${deviceId} — no subscribers`);
+        }
 
       } else if (msg.type === 'request') {
         // PWA request to device
@@ -107,6 +130,14 @@ wss.on('connection', (ws) => {
       devices.delete(ws.deviceId);
       console.log(`[Relay] Total devices online: ${devices.size}`);
     } else {
+      // Clean up subscriber entry
+      if (ws.subscribedTo) {
+        const subs = subscribers.get(ws.subscribedTo);
+        if (subs) {
+          subs.delete(ws);
+          if (subs.size === 0) subscribers.delete(ws.subscribedTo);
+        }
+      }
       console.log('[Relay] PWA client disconnected');
     }
   });
