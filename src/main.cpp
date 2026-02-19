@@ -1943,8 +1943,14 @@ void getWeatherForecast(int &code, int &temperature) {
   client.setCACert(isrg_root_x1_ca);  // Open-Meteo uses Let's Encrypt (ISRG Root X1)
 
   HTTPClient http;
+  // Normalize longitude to [-180, 180] — Leaflet can produce values outside
+  // this range when the map wraps past the antimeridian.
+  float normLon = longitude;
+  while (normLon >  180.0f) normLon -= 360.0f;
+  while (normLon < -180.0f) normLon += 360.0f;
+
   String apiUrl = String(weatherApiBase) + "?latitude=" +
-                  String(latitude, 4) + "&longitude=" + String(longitude, 4) +
+                  String(latitude, 4) + "&longitude=" + String(normLon, 4) +
                   "&current=temperature_2m,weather_code";
 
   Serial.println("API URL: " + apiUrl);

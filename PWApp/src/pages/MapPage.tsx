@@ -37,10 +37,12 @@ function LocationMarker({
 }) {
   useMapEvents({
     click(e) {
-      onPositionChange({
-        latitude: e.latlng.lat,
-        longitude: e.latlng.lng
-      });
+      // Normalize longitude to [-180, 180] — Leaflet returns values outside
+      // this range when the map wraps past the antimeridian.
+      let lon = e.latlng.lng;
+      while (lon >  180) lon -= 360;
+      while (lon < -180) lon += 360;
+      onPositionChange({ latitude: e.latlng.lat, longitude: lon });
     },
   });
 
