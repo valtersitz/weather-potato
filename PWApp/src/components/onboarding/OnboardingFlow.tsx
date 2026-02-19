@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { WelcomeScreen } from './WelcomeScreen';
 import { BLEConnectionComponent } from './BLEConnection';
 import { WiFiQRScanner } from './WiFiQRScanner';
@@ -22,11 +22,11 @@ import type {
 
 export const OnboardingFlow = () => {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [step, setStep] = useState<OnboardingStep>('welcome');
   const [deviceId, setDeviceId] = useState<string>('');
   const [isDiscovering, setIsDiscovering] = useState(false);
 
-  console.log('[OnboardingFlow] Current step:', step);
   const [bleConnection, setBleConnection] = useState<BLEConnection | null>(null);
   const [wifiCredentials, setWifiCredentials] = useState<WiFiCredentials | null>(null);
   const [location, setLocation] = useState<LocationInfo | null>(null);
@@ -36,14 +36,16 @@ export const OnboardingFlow = () => {
   const [deviceOffline, setDeviceOffline] = useState(false);
 
   useEffect(() => {
-    // Check if device is already configured
+    // Guard against stale async callbacks from a previous mount executing
+    // navigate() after the component unmounts and remounts (e.g. ?new=1 case).
+    let cancelled = false;
+
     const savedConfig = loadPotatoConfig();
 
     const tryAutoDiscover = async () => {
       // ?new=1 means the user explicitly wants to onboard a NEW device —
       // skip all auto-redirect and discovery logic.
-      const urlParams = new URLSearchParams(window.location.search);
-      if (urlParams.get('new') === '1') {
+      if (searchParams.get('new') === '1') {
         console.log('[OnboardingFlow] ?new=1 — skipping auto-redirect for new device setup');
         setIsDiscovering(false);
         return;
@@ -55,6 +57,7 @@ export const OnboardingFlow = () => {
         // Config exists — check if device is actually reachable via relay
         console.log('[OnboardingFlow] Config exists, checking device online status...');
         const online = await checkDeviceOnline(savedConfig.device_id);
+        if (cancelled) return;  // component unmounted while we were awaiting
         if (online) {
           console.log('[OnboardingFlow] ✅ Device online, redirecting to dashboard');
           navigate('/dashboard');
@@ -71,6 +74,7 @@ export const OnboardingFlow = () => {
       console.log('[OnboardingFlow] No config, attempting auto-discovery...');
       try {
         const result = await discoverWeatherPotato();
+        if (cancelled) return;
         if (result.found && result.config) {
           console.log('[OnboardingFlow] ✅ Auto-discovered device!', result.config);
           savePotatoConfig(result.config);
@@ -81,32 +85,28 @@ export const OnboardingFlow = () => {
       } catch (err) {
         console.error('[OnboardingFlow] Auto-discovery failed:', err);
       } finally {
-        setIsDiscovering(false);
+        if (!cancelled) setIsDiscovering(false);
       }
     };
 
     tryAutoDiscover();
 
-    // Get device ID from URL parameter (from QR code scan)
-    const urlParams = new URLSearchParams(window.location.search);
-    const urlDeviceId = urlParams.get('device');
-
+    // Get device ID from URL parameter (from QR code scan) or localStorage
+    const urlDeviceId = searchParams.get('device');
     if (urlDeviceId) {
       console.log('Device ID from URL:', urlDeviceId);
       setDeviceId(urlDeviceId);
       localStorage.setItem(STORAGE_DEVICE_ID, urlDeviceId);
     } else {
-      // Check localStorage for previous device ID
       const savedDeviceId = localStorage.getItem(STORAGE_DEVICE_ID);
       if (savedDeviceId) {
         console.log('Device ID from localStorage:', savedDeviceId);
         setDeviceId(savedDeviceId);
-      } else {
-        // No device ID yet - will be obtained from BLE or AP connection
-        console.log('No device ID yet - will be detected during onboarding');
       }
     }
-  }, [navigate]);
+
+    return () => { cancelled = true; };
+  }, [navigate, searchParams]);
 
   const handleRecover = (enteredId: string) => {
     const relayUrl = import.meta.env.VITE_RELAY_URL || 'wss://weather-potato-production.up.railway.app';

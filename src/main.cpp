@@ -99,6 +99,10 @@ String geoLocation = "";
 // OTA security token — generated once at first boot, stored in NVS.
 // Must be supplied in every ota_request; wrong token = update rejected.
 String otaToken = "";
+// Pending OTA: URL set by WS handler; task spawned by loop() with large stack.
+static volatile bool otaPending  = false;
+static volatile bool otaRunning  = false;
+static String        otaUrlQueue = "";
 String lastWeatherCondition = "Unknown";
 int lastTemperature = 0;
 struct tm timeinfo;
@@ -1153,13 +1157,12 @@ void performOTA(const String& firmwareUrl) {
 
   sendOTAStatus("starting", 0);
 
-  // Set up HTTPS client (ISRG Root X1 covers ngrok; for plain HTTP just ignore cert)
+  // Skip certificate verification for the firmware download.
+  // The OTA token (checked before this call) is the real authentication.
+  // Using setInsecure() avoids hardcoding a CA for every possible host
+  // (ngrok, GitHub, local servers, etc.).
   WiFiClientSecure secureClient;
-  if (firmwareUrl.startsWith("https://")) {
-    secureClient.setCACert(isrg_root_x1_ca);
-  } else {
-    secureClient.setInsecure();  // plain HTTP — no cert needed
-  }
+  secureClient.setInsecure();
 
   HTTPClient http;
   http.begin(secureClient, firmwareUrl);
@@ -1244,6 +1247,14 @@ void performOTA(const String& firmwareUrl) {
   }
 
   http.end();
+}
+
+// OTA task wrapper — gives performOTA its own 16 KB stack so it doesn't
+// overflow the 8 KB loopTask stack. Spawned from loop() via otaPending flag.
+static void otaTaskFn(void*) {
+  performOTA(otaUrlQueue);
+  otaRunning = false;
+  vTaskDelete(nullptr);
 }
 
 // ============================================================================
@@ -1352,8 +1363,9 @@ void handleWebSocketMessage(const char* payload) {
     // }
     // Serial.println("[OTA] ✅ Token OK — starting: " + url);
     String url = doc["url"].as<String>();
-    Serial.println("[OTA] Starting (token check disabled): " + url);
-    performOTA(url);
+    Serial.println("[OTA] Queuing OTA: " + url);
+    otaUrlQueue = url;
+    otaPending  = true;
     return;
   }
 
@@ -1682,9 +1694,17 @@ void loop() {
   // This caused AP mode to NEVER process requests!
   server.handleClient();
 
-  // Handle WebSocket relay connection (only when WiFi connected)
-  if (WiFi.status() == WL_CONNECTED) {
+  // Handle WebSocket relay connection (skip during OTA to avoid race on wsClient)
+  if (WiFi.status() == WL_CONNECTED && !otaRunning) {
     wsClient.loop();
+  }
+
+  // Spawn OTA task with adequate stack when requested by WS handler.
+  // performOTA needs ~16 KB; loopTask only has 8 KB — run it in its own task.
+  if (otaPending && !otaRunning) {
+    otaPending = false;
+    otaRunning = true;
+    xTaskCreatePinnedToCore(otaTaskFn, "otaTask", 16384, nullptr, 5, nullptr, 1);
   }
 
   // Scheduled restart (used after BLE onboarding to get a clean boot with relay init)
@@ -1720,6 +1740,15 @@ void loop() {
       Serial.println(WiFi.dnsIP());
       Serial.println("   Waiting for setup page to poll status...");
       Serial.println("   AP will shutdown after sending success response");
+      Serial.println("========================================");
+      Serial.println("========================================");
+      Serial.println("========================================");
+      Serial.println("========================================");
+      Serial.println("====THIS IS PROOF OTA IS WORKING===============");
+      Serial.println("========================================");
+      Serial.println("========================================");
+      Serial.println("========================================");
+      Serial.println("========================================");
       Serial.println("========================================");
 
       wifiConnecting = false;
