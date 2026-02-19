@@ -300,11 +300,15 @@ class ServerCallbacks : public BLEServerCallbacks {
 
   void onDisconnect(BLEServer* pServer) {
     Serial.println("BLE client disconnected");
-    // Restart advertising so other devices can connect
     if (bleEnabled) {
-      delay(500); // Give some time before restarting
+      // Normal disconnect during onboarding — keep advertising for reconnects
+      delay(500);
       BLEDevice::startAdvertising();
       Serial.println("BLE advertising restarted");
+    } else {
+      // bleEnabled was cleared after WiFi connected — free BLE RAM for SSL
+      BLEDevice::deinit(true);
+      Serial.printf("[BLE] Deinited on disconnect — free heap: %u bytes\n", ESP.getFreeHeap());
     }
   }
 };
@@ -495,13 +499,11 @@ void connectToWiFiViaBLE() {
       Serial.println("Sent WiFi success notification via BLE");
     }
 
-    // Deinit BLE now — frees ~50 KB RAM needed for SSL.
-    // Set bleEnabled = false BEFORE deinit so onDisconnect won't try to
-    // restart advertising on the already-torn-down BLE stack.
-    delay(300); // give the notification time to reach the client
+    // Signal that BLE should shut down once the client disconnects.
+    // We must NOT call deinit() here — the BLE connection is still live and
+    // the phone needs to receive the success notification cleanly first.
+    // deinit(true) will be called from onDisconnect() when bleEnabled == false.
     bleEnabled = false;
-    BLEDevice::deinit(true);
-    Serial.printf("[BLE] Deinited after WiFi connect — free heap: %u bytes\n", ESP.getFreeHeap());
 
     // Initialize time
     configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
@@ -1600,6 +1602,26 @@ void setup() {
       Serial.println("HTTP server started on port 8080");
 
       configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
+
+      // Wait for NTP sync before SSL (cert validation needs correct time)
+      Serial.print("[WS] Waiting for NTP sync");
+      time_t now = 0;
+      int ntpRetries = 0;
+      while (now < 1700000000 && ntpRetries < 20) {
+        delay(500);
+        time(&now);
+        Serial.print(".");
+        ntpRetries++;
+      }
+      Serial.println(now > 1700000000 ? " OK" : " TIMEOUT (continuing anyway)");
+
+      // Initialize WebSocket relay connection
+      Serial.printf("[WS] Free heap before SSL: %u bytes\n", ESP.getFreeHeap());
+      Serial.println("[WS] Connecting to relay server...");
+      wsClient.beginSslWithCA("weather-potato-production.up.railway.app", 443, "/", isrg_root_x1_ca);
+      wsClient.setReconnectInterval(5000);
+      wsClient.onEvent(webSocketEvent);
+      Serial.println("[WS] WebSocket client initialized");
 
       Serial.println("=== Setup Complete ===\n");
       return; // Skip BLE setup
