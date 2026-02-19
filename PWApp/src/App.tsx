@@ -4,6 +4,7 @@ import { OnboardingComplete } from './pages/OnboardingComplete';
 import { WeatherDashboard } from './pages/WeatherDashboard';
 import { MapPage } from './pages/MapPage';
 import { TestPage } from './pages/TestPage';
+import { MyPotatoesPage } from './pages/MyPotatoesPage';
 import { loadPotatoConfig } from './services/localConnectionService';
 
 function App() {
@@ -38,6 +39,15 @@ function App() {
           element={
             <ProtectedRoute>
               <TestPage />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/potatoes"
+          element={
+            <ProtectedRoute>
+              <MyPotatoesPage />
             </ProtectedRoute>
           }
         />

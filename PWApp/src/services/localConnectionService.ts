@@ -142,32 +142,102 @@ export const getWeather = async (endpoint: string) => {
   return await response.json();
 };
 
-/**
- * Save configuration to localStorage
- */
-export const savePotatoConfig = (config: PotatoConfig): void => {
-  localStorage.setItem('potato_config', JSON.stringify(config));
-};
+// ---------------------------------------------------------------------------
+// Multi-potato storage
+// Keys: 'potato_configs' (PotatoConfig[]) + 'active_potato_id' (string)
+// Migration: if old 'potato_config' key exists and new key is absent, migrate.
+// ---------------------------------------------------------------------------
 
-/**
- * Load configuration from localStorage
- */
-export const loadPotatoConfig = (): PotatoConfig | null => {
-  const configStr = localStorage.getItem('potato_config');
-  if (!configStr) return null;
+const KEY_CONFIGS = 'potato_configs';
+const KEY_ACTIVE  = 'active_potato_id';
+const KEY_LEGACY  = 'potato_config';
 
+function migrateIfNeeded(): void {
+  if (localStorage.getItem(KEY_CONFIGS) !== null) return;
+  const legacy = localStorage.getItem(KEY_LEGACY);
+  if (!legacy) return;
   try {
-    return JSON.parse(configStr);
+    const config: PotatoConfig = JSON.parse(legacy);
+    localStorage.setItem(KEY_CONFIGS, JSON.stringify([config]));
+    localStorage.setItem(KEY_ACTIVE, config.device_id);
+    localStorage.removeItem(KEY_LEGACY);
   } catch {
-    return null;
+    // malformed legacy data — leave it alone
+  }
+}
+
+/**
+ * Return all saved potato configs. Migrates the old single-config key if needed.
+ */
+export const loadAllPotatoConfigs = (): PotatoConfig[] => {
+  migrateIfNeeded();
+  const raw = localStorage.getItem(KEY_CONFIGS);
+  if (!raw) return [];
+  try {
+    return JSON.parse(raw) as PotatoConfig[];
+  } catch {
+    return [];
   }
 };
 
 /**
- * Clear saved configuration
+ * Save (upsert) a config into the list and make it the active device.
+ * Existing entry with the same device_id is replaced.
+ */
+export const savePotatoConfig = (config: PotatoConfig): void => {
+  const all = loadAllPotatoConfigs();
+  const idx = all.findIndex(c => c.device_id === config.device_id);
+  if (idx >= 0) {
+    all[idx] = config;
+  } else {
+    all.push(config);
+  }
+  localStorage.setItem(KEY_CONFIGS, JSON.stringify(all));
+  localStorage.setItem(KEY_ACTIVE, config.device_id);
+};
+
+/**
+ * Load the active potato config. Returns null if no config is saved.
+ * Drop-in replacement for the old single-config loader — no callers need to change.
+ */
+export const loadPotatoConfig = (): PotatoConfig | null => {
+  const all = loadAllPotatoConfigs();
+  if (all.length === 0) return null;
+  const activeId = localStorage.getItem(KEY_ACTIVE);
+  return all.find(c => c.device_id === activeId) ?? all[0];
+};
+
+/**
+ * Set which potato is the active one (by device_id).
+ */
+export const setActivePotatoId = (deviceId: string): void => {
+  localStorage.setItem(KEY_ACTIVE, deviceId);
+};
+
+/**
+ * Remove a single potato config from the list.
+ * If it was the active one, activate the first remaining entry (or clear if none).
+ */
+export const removePotatoConfig = (deviceId: string): void => {
+  const all = loadAllPotatoConfigs().filter(c => c.device_id !== deviceId);
+  localStorage.setItem(KEY_CONFIGS, JSON.stringify(all));
+  const activeId = localStorage.getItem(KEY_ACTIVE);
+  if (activeId === deviceId) {
+    if (all.length > 0) {
+      localStorage.setItem(KEY_ACTIVE, all[0].device_id);
+    } else {
+      localStorage.removeItem(KEY_ACTIVE);
+    }
+  }
+};
+
+/**
+ * Clear ALL saved configs and the active id (full reconfigure).
  */
 export const clearPotatoConfig = (): void => {
-  localStorage.removeItem('potato_config');
+  localStorage.removeItem(KEY_CONFIGS);
+  localStorage.removeItem(KEY_ACTIVE);
+  localStorage.removeItem(KEY_LEGACY);
 };
 
 /**

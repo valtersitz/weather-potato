@@ -46,6 +46,7 @@ export interface ESP32Status {
 
 export interface PotatoConfig {
   device_id: string;
+  name?: string;        // User-friendly label; falls back to device_id if absent
   endpoint: string;
   hostname: string;
   last_seen: number;

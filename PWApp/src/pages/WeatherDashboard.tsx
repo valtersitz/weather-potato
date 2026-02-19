@@ -27,6 +27,7 @@ export const WeatherDashboard = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string>('');
   const [showDebug, setShowDebug] = useState(false);
+  const [showMenu, setShowMenu] = useState(false);
   // Start in "waiting for touch" mode — user must touch the physical potato
   const [waitingForTouch, setWaitingForTouch] = useState(true);
 
@@ -92,22 +93,23 @@ export const WeatherDashboard = () => {
           <h1 className="text-3xl font-bold gradient-text">
             🥔 Weather Potato
           </h1>
-          <div className="flex gap-2">
+          <div className="flex gap-2 items-center">
             <Button
               variant="secondary"
               onClick={() => navigate('/map')}
             >
               🗺️ Map
             </Button>
-            {!waitingForTouch && (
-              <Button
-                variant="secondary"
-                onClick={fetchWeather}
-                disabled={loading}
-              >
-                🔄 Refresh
-              </Button>
-            )}
+            {/* Burger menu button */}
+            <button
+              onClick={() => setShowMenu(true)}
+              className="w-10 h-10 flex flex-col items-center justify-center gap-1.5 rounded-xl bg-white/60 hover:bg-white/80 transition-colors"
+              aria-label="Menu"
+            >
+              <span className="block w-5 h-0.5 bg-gray-600 rounded" />
+              <span className="block w-5 h-0.5 bg-gray-600 rounded" />
+              <span className="block w-5 h-0.5 bg-gray-600 rounded" />
+            </button>
           </div>
         </div>
 
@@ -188,7 +190,7 @@ export const WeatherDashboard = () => {
               </div>
 
               <p className="text-center text-xs text-gray-400 mt-6">
-                Touch your Potato to refresh — or tap 🔄 above
+                Touch your Potato to refresh — or tap 🔄 below
               </p>
             </div>
           ) : null}
@@ -213,19 +215,59 @@ export const WeatherDashboard = () => {
           </Card>
         )}
 
-        {/* Test light & sound */}
-        <div className="mt-4 text-center">
-          <Button variant="ghost" onClick={() => navigate('/test')}>
-            🔬 Test light &amp; sound
-          </Button>
+        {/* Bottom actions */}
+        <div className="mt-4 flex justify-center gap-3">
+          {!waitingForTouch && (
+            <Button variant="secondary" onClick={fetchWeather} disabled={loading}>
+              🔄 Refresh
+            </Button>
+          )}
         </div>
 
         {/* Device Info */}
-        <div className="mt-2 text-center text-xs text-gray-500">
-          <p>Device: {config.device_id}</p>
-          <p>Endpoint: {config.endpoint}</p>
+        <div className="mt-4 text-center text-xs text-gray-500">
+          <p>Device: {config.name ?? config.device_id}</p>
         </div>
       </div>
+
+      {/* Burger menu overlay */}
+      {showMenu && (
+        <>
+          {/* Backdrop */}
+          <div
+            className="fixed inset-0 bg-black/40 z-40"
+            onClick={() => setShowMenu(false)}
+          />
+          {/* Drawer */}
+          <div className="fixed top-0 right-0 h-full w-64 bg-white shadow-2xl z-50 flex flex-col">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+              <span className="font-bold text-gray-800">Menu</span>
+              <button
+                onClick={() => setShowMenu(false)}
+                className="text-2xl text-gray-400 hover:text-gray-600 leading-none"
+                aria-label="Close menu"
+              >
+                ✕
+              </button>
+            </div>
+            <nav className="flex-1 py-3">
+              {[
+                { emoji: '🥔', label: 'My Potatoes', path: '/potatoes' },
+                { emoji: '🔬', label: 'Test light & sound', path: '/test' },
+              ].map(item => (
+                <button
+                  key={item.path}
+                  onClick={() => { setShowMenu(false); navigate(item.path); }}
+                  className="w-full flex items-center gap-3 px-5 py-4 text-left text-gray-700 hover:bg-gray-50 transition-colors"
+                >
+                  <span className="text-xl">{item.emoji}</span>
+                  <span className="font-medium">{item.label}</span>
+                </button>
+              ))}
+            </nav>
+          </div>
+        </>
+      )}
     </div>
   );
 };
