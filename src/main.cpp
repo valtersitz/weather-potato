@@ -495,6 +495,14 @@ void connectToWiFiViaBLE() {
       Serial.println("Sent WiFi success notification via BLE");
     }
 
+    // Deinit BLE now — frees ~50 KB RAM needed for SSL.
+    // Set bleEnabled = false BEFORE deinit so onDisconnect won't try to
+    // restart advertising on the already-torn-down BLE stack.
+    delay(300); // give the notification time to reach the client
+    bleEnabled = false;
+    BLEDevice::deinit(true);
+    Serial.printf("[BLE] Deinited after WiFi connect — free heap: %u bytes\n", ESP.getFreeHeap());
+
     // Initialize time
     configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
 

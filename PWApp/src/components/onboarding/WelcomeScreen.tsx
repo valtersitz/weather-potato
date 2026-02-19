@@ -11,6 +11,7 @@ interface WelcomeScreenProps {
   deviceOffline?: boolean;
   onGoToDashboard?: () => void;
   onReconfigure?: () => void;
+  onRecover?: (deviceId: string) => void;
 }
 
 interface BeforeInstallPromptEvent extends Event {
@@ -18,10 +19,12 @@ interface BeforeInstallPromptEvent extends Event {
   userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }>;
 }
 
-export const WelcomeScreen = ({ onStart, deviceId, isDiscovering = false, deviceOffline = false, onGoToDashboard, onReconfigure }: WelcomeScreenProps) => {
+export const WelcomeScreen = ({ onStart, deviceId, isDiscovering = false, deviceOffline = false, onGoToDashboard, onReconfigure, onRecover }: WelcomeScreenProps) => {
   const { t } = useI18n();
   const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [isInstalled, setIsInstalled] = useState(false);
+  const [showRecover, setShowRecover] = useState(false);
+  const [recoverInput, setRecoverInput] = useState('');
 
   useEffect(() => {
     // Check if already installed
@@ -141,7 +144,43 @@ export const WelcomeScreen = ({ onStart, deviceId, isDiscovering = false, device
           </div>
         )}
 
-        <div className="mt-8 text-xs text-gray-500">
+        {/* Recovery: skip onboarding if device is already set up */}
+        {!deviceOffline && onRecover && (
+          <div className="mt-6 border-t border-gray-100 pt-4">
+            {!showRecover ? (
+              <button
+                onClick={() => setShowRecover(true)}
+                className="text-xs text-gray-400 hover:text-gray-600 underline"
+              >
+                Already set up your Potato?
+              </button>
+            ) : (
+              <div className="text-left">
+                <p className="text-xs text-gray-500 mb-2">
+                  Enter your Device ID (printed in the serial monitor at boot, e.g. <span className="font-mono">30AEA406</span>)
+                </p>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={recoverInput}
+                    onChange={(e) => setRecoverInput(e.target.value.toUpperCase())}
+                    maxLength={8}
+                    placeholder="30AEA406"
+                    className="flex-1 px-3 py-2 border-2 border-gray-300 rounded-xl font-mono text-sm focus:border-primary focus:outline-none"
+                  />
+                  <Button
+                    onClick={() => onRecover(recoverInput)}
+                    disabled={recoverInput.length < 6}
+                  >
+                    Go →
+                  </Button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        <div className="mt-6 text-xs text-gray-500">
           <p>Weather Potato v1.0.0</p>
         </div>
       </Card>

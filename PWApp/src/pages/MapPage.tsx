@@ -209,7 +209,7 @@ export const MapPage = () => {
                      tempCoordinates.longitude !== coordinates.longitude;
 
   return (
-    <div className="min-h-screen flex flex-col bg-gradient-to-br from-primary-light via-accent/30 to-secondary-light">
+    <div className="h-screen flex flex-col overflow-hidden bg-gradient-to-br from-primary-light via-accent/30 to-secondary-light">
       {/* Compact header */}
       <div className="flex items-center gap-2 px-3 py-2 bg-white/70 backdrop-blur-sm shadow-sm flex-none">
         <Button
@@ -267,12 +267,12 @@ export const MapPage = () => {
       </div>
 
       {/* Map — fills remaining vertical space */}
-      <div className="flex-1 mx-3 mb-2 rounded-xl overflow-hidden shadow-lg z-10 min-h-52">
+      <div className="mx-3 mb-2 rounded-xl overflow-hidden shadow-lg z-10" style={{ height: 'calc(100vh - 195px)' }}>
         <MapContainer
           center={[tempCoordinates.latitude, tempCoordinates.longitude]}
           zoom={13}
           className="h-full w-full"
-          style={{ minHeight: '208px' }}
+          style={{ height: '100%' }}
           key={`${tempCoordinates.latitude}-${tempCoordinates.longitude}`}
         >
           <TileLayer

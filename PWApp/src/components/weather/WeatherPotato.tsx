@@ -112,19 +112,19 @@ export const WeatherPotato = ({ condition, temperature }: WeatherPotatoProps) =>
 
   return (
     <div className="flex flex-col items-center justify-center py-6">
-      {/* Accessory emoji above the potato */}
-      <div className="text-5xl mb-2">{potato.accessory}</div>
-
-      {/* Potato body */}
-      <div
-        className={`filter drop-shadow-2xl bg-gradient-to-br ${potato.color} rounded-full flex items-center justify-center ${bounce ? 'animate-bounce' : ''}`}
-        style={{ width: '180px', height: '180px', transition: 'transform 0.3s ease' }}
-      >
-        <span className="text-7xl">{potato.body}</span>
+      {/* Potato body with accessory overlaid at the top */}
+      <div className="relative" style={{ width: '180px', height: '180px' }}>
+        <div
+          className={`filter drop-shadow-2xl bg-gradient-to-br ${potato.color} rounded-full w-full h-full flex items-center justify-center ${bounce ? 'animate-bounce' : ''}`}
+          style={{ transition: 'transform 0.3s ease' }}
+        >
+          <span className="text-7xl">{potato.body}</span>
+        </div>
+        {/* Accessory sits on top of the potato */}
+        <div className="absolute -top-5 left-0 right-0 flex justify-center text-5xl pointer-events-none">
+          {potato.accessory}
+        </div>
       </div>
-
-      {/* Mood / face indicator below the potato */}
-      <div className="text-4xl mt-3">{potato.face}</div>
 
       {/* Speech bubble */}
       <div className="mt-4 bg-white rounded-2xl px-6 py-3 shadow-lg relative">

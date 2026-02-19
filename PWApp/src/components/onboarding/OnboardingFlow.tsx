@@ -99,6 +99,19 @@ export const OnboardingFlow = () => {
     }
   }, [navigate]);
 
+  const handleRecover = (enteredId: string) => {
+    const relayUrl = import.meta.env.VITE_RELAY_URL || 'wss://weather-potato-production.up.railway.app';
+    savePotatoConfig({
+      device_id: enteredId.toUpperCase(),
+      endpoint: relayUrl,
+      hostname: 'weatherpotato.local',
+      last_seen: Date.now(),
+      setup_complete: true,
+      relay_url: relayUrl,
+    });
+    navigate('/dashboard');
+  };
+
   const handleStart = () => {
     // iOS doesn't support Web Bluetooth in Safari/Chrome - use AP mode
     if (isIOS()) {
@@ -209,6 +222,7 @@ export const OnboardingFlow = () => {
           deviceOffline={deviceOffline}
           onGoToDashboard={() => navigate('/dashboard')}
           onReconfigure={() => { clearPotatoConfig(); setDeviceOffline(false); }}
+          onRecover={handleRecover}
         />
       )}
 
