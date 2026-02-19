@@ -1,5 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { Html5Qrcode } from 'html5-qrcode';
 import { Button } from '../components/ui/Button';
 import {
   loadAllPotatoConfigs,
@@ -13,6 +14,92 @@ import { connectionService } from '../services/connectionService';
 import { RELAY_URL } from '../utils/constants';
 import type { PotatoConfig } from '../types';
 
+// ─── Inline QR scanner ────────────────────────────────────────────────────────
+
+interface QRScannerProps {
+  onResult: (text: string) => void;
+  onClose: () => void;
+}
+
+function QRScanner({ onResult, onClose }: QRScannerProps) {
+  const scannerRef = useRef<Html5Qrcode | null>(null);
+  const doneRef = useRef(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    const scanner = new Html5Qrcode('potato-qr-reader');
+    scannerRef.current = scanner;
+
+    scanner
+      .start(
+        { facingMode: 'environment' },
+        { fps: 10, qrbox: { width: 240, height: 240 } },
+        (text) => {
+          if (doneRef.current) return;
+          doneRef.current = true;
+          scanner.stop().catch(() => {});
+          onResult(text);
+        },
+        () => {}
+      )
+      .catch((err: unknown) => {
+        setError('Could not start camera: ' + (err instanceof Error ? err.message : String(err)));
+      });
+
+    return () => {
+      if (scannerRef.current && !doneRef.current) {
+        scannerRef.current.stop().catch(() => {});
+      }
+    };
+  }, [onResult]);
+
+  return (
+    <div className="fixed inset-0 bg-black/80 z-50 flex flex-col items-center justify-center p-4">
+      <div className="bg-white rounded-2xl w-full max-w-sm overflow-hidden">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
+          <span className="font-bold text-gray-800">Scan Potato QR Code</span>
+          <button onClick={onClose} className="text-2xl text-gray-400 leading-none">✕</button>
+        </div>
+        <div className="p-4">
+          <p className="text-xs text-gray-500 mb-3 text-center">
+            Point your camera at the QR code printed on the Potato
+          </p>
+          <div id="potato-qr-reader" className="rounded-xl overflow-hidden" />
+          {error && (
+            <p className="mt-3 text-xs text-red-500 text-center">{error}</p>
+          )}
+          <button
+            onClick={onClose}
+            className="mt-3 w-full text-sm text-gray-400 hover:text-gray-600 py-2"
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Device ID parsing ────────────────────────────────────────────────────────
+
+/** Accept either a raw device ID ("30AEA406") or a URL containing ?device=XXXX */
+function parseDeviceIdFromQR(text: string): string | null {
+  const trimmed = text.trim().toUpperCase();
+  // Plain device ID: 6-8 hex chars
+  if (/^[0-9A-F]{6,8}$/.test(trimmed)) return trimmed;
+  // URL with ?device= param
+  try {
+    const url = new URL(text);
+    const id = url.searchParams.get('device');
+    if (id && /^[0-9A-F]{6,8}$/i.test(id)) return id.toUpperCase();
+  } catch {
+    // not a URL
+  }
+  return null;
+}
+
+// ─── Main page ────────────────────────────────────────────────────────────────
+
 export const MyPotatoesPage = () => {
   const navigate = useNavigate();
   const [configs, setConfigs] = useState<PotatoConfig[]>([]);
@@ -20,9 +107,17 @@ export const MyPotatoesPage = () => {
   const [onlineStatus, setOnlineStatus] = useState<Record<string, boolean | null>>({});
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
 
-  // Add by device-id form
+  // Inline name editing
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editingName, setEditingName] = useState('');
+
+  // Add by device ID
   const [showAddById, setShowAddById] = useState(false);
   const [addIdInput, setAddIdInput] = useState('');
+
+  // QR scanner
+  const [showQR, setShowQR] = useState(false);
+  const [qrError, setQrError] = useState('');
 
   useEffect(() => {
     const all = loadAllPotatoConfigs();
@@ -30,9 +125,8 @@ export const MyPotatoesPage = () => {
     setConfigs(all);
     setActiveId(active?.device_id ?? null);
 
-    // Check online status for all potatoes in the background
     all.forEach(c => {
-      setOnlineStatus(prev => ({ ...prev, [c.device_id]: null })); // null = checking
+      setOnlineStatus(prev => ({ ...prev, [c.device_id]: null }));
       checkDeviceOnline(c.device_id).then(online => {
         setOnlineStatus(prev => ({ ...prev, [c.device_id]: online }));
       });
@@ -40,6 +134,7 @@ export const MyPotatoesPage = () => {
   }, []);
 
   const handleSelect = (config: PotatoConfig) => {
+    if (editingId) return; // don't navigate while editing
     setActivePotatoId(config.device_id);
     connectionService.init(config);
     navigate('/dashboard');
@@ -59,21 +154,46 @@ export const MyPotatoesPage = () => {
     if (remaining.length === 0) navigate('/');
   };
 
-  const handleAddById = () => {
-    const id = addIdInput.trim().toUpperCase();
-    if (id.length < 6) return;
-    const relayUrl = RELAY_URL;
+  const startEdit = (config: PotatoConfig, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setEditingId(config.device_id);
+    setEditingName(config.name ?? config.device_id);
+    setConfirmDelete(null);
+  };
+
+  const saveEdit = (config: PotatoConfig) => {
+    const trimmed = editingName.trim();
+    const updated = { ...config, name: trimmed || config.device_id };
+    savePotatoConfig(updated);
+    setConfigs(loadAllPotatoConfigs());
+    setEditingId(null);
+  };
+
+  const addById = (id: string) => {
+    const clean = id.trim().toUpperCase();
+    if (clean.length < 6) return;
     const config: PotatoConfig = {
-      device_id: id,
-      endpoint: relayUrl,
+      device_id: clean,
+      endpoint: RELAY_URL,
       hostname: 'weatherpotato.local',
       last_seen: Date.now(),
       setup_complete: true,
-      relay_url: relayUrl,
+      relay_url: RELAY_URL,
     };
     savePotatoConfig(config);
     connectionService.init(config);
     navigate('/dashboard');
+  };
+
+  const handleQRResult = (text: string) => {
+    setShowQR(false);
+    const id = parseDeviceIdFromQR(text);
+    if (id) {
+      addById(id);
+    } else {
+      setQrError(`Could not read a Device ID from the QR code. Got: "${text}"`);
+      setShowAddById(true);
+    }
   };
 
   return (
@@ -98,6 +218,7 @@ export const MyPotatoesPage = () => {
           const isActive = config.device_id === activeId;
           const online = onlineStatus[config.device_id];
           const pendingDelete = confirmDelete === config.device_id;
+          const isEditing = editingId === config.device_id;
 
           return (
             <div
@@ -106,66 +227,103 @@ export const MyPotatoesPage = () => {
                 isActive ? 'border-primary' : 'border-transparent'
               }`}
             >
-              {/* Clickable main area */}
-              <button
-                className="w-full text-left p-4 pr-20"
-                onClick={() => handleSelect(config)}
-              >
-                <div className="flex items-center gap-3">
-                  {/* Online dot */}
-                  <span
-                    className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${
-                      online === null
-                        ? 'bg-gray-300 animate-pulse'
-                        : online
-                        ? 'bg-green-400'
-                        : 'bg-gray-300'
-                    }`}
+              {isEditing ? (
+                /* ── Name edit mode ── */
+                <div className="p-4 flex items-center gap-2">
+                  <input
+                    autoFocus
+                    value={editingName}
+                    onChange={e => setEditingName(e.target.value)}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter') saveEdit(config);
+                      if (e.key === 'Escape') setEditingId(null);
+                    }}
+                    className="flex-1 px-3 py-1.5 border-2 border-primary rounded-xl text-sm focus:outline-none"
+                    placeholder={config.device_id}
                   />
-                  <div>
-                    <p className="font-bold text-gray-800">
-                      {config.name ?? config.device_id}
-                    </p>
-                    {config.name && (
-                      <p className="text-xs text-gray-400 font-mono">{config.device_id}</p>
-                    )}
-                    <p className="text-xs text-gray-500 mt-0.5">
-                      {online === null ? 'Checking...' : online ? 'Online' : 'Offline'}
-                    </p>
-                  </div>
-                  {isActive && (
-                    <span className="ml-auto text-xs font-semibold text-primary bg-primary/10 px-2 py-0.5 rounded-full">
-                      Active
-                    </span>
-                  )}
+                  <button
+                    onClick={() => saveEdit(config)}
+                    className="px-3 py-1.5 bg-primary text-white rounded-xl text-sm font-semibold"
+                  >
+                    Save
+                  </button>
+                  <button
+                    onClick={() => setEditingId(null)}
+                    className="px-3 py-1.5 bg-gray-100 text-gray-600 rounded-xl text-sm"
+                  >
+                    ✕
+                  </button>
                 </div>
-              </button>
+              ) : (
+                /* ── Normal mode ── */
+                <button
+                  className="w-full text-left p-4 pr-24"
+                  onClick={() => handleSelect(config)}
+                >
+                  <div className="flex items-center gap-3">
+                    {/* Online dot */}
+                    <span
+                      className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${
+                        online === null
+                          ? 'bg-gray-300 animate-pulse'
+                          : online
+                          ? 'bg-green-400'
+                          : 'bg-gray-300'
+                      }`}
+                    />
+                    <div className="min-w-0">
+                      <p className="font-bold text-gray-800 truncate">
+                        {config.name ?? config.device_id}
+                      </p>
+                      {config.name && (
+                        <p className="text-xs text-gray-400 font-mono">{config.device_id}</p>
+                      )}
+                      <p className="text-xs text-gray-500 mt-0.5">
+                        {online === null ? 'Checking...' : online ? 'Online' : 'Offline'}
+                      </p>
+                    </div>
+                    {isActive && (
+                      <span className="ml-auto flex-shrink-0 text-xs font-semibold text-primary bg-primary/10 px-2 py-0.5 rounded-full">
+                        Active
+                      </span>
+                    )}
+                  </div>
+                </button>
+              )}
 
-              {/* Delete button */}
-              <button
-                className={`absolute right-3 top-1/2 -translate-y-1/2 px-3 py-1.5 rounded-xl text-xs font-semibold transition-colors ${
-                  pendingDelete
-                    ? 'bg-red-500 text-white'
-                    : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
-                }`}
-                onClick={e => { e.stopPropagation(); handleDelete(config.device_id); }}
-              >
-                {pendingDelete ? 'Sure?' : '🗑️'}
-              </button>
+              {/* Action buttons (edit + delete) — hidden while editing */}
+              {!isEditing && (
+                <div className="absolute right-3 top-1/2 -translate-y-1/2 flex gap-1">
+                  <button
+                    onClick={e => startEdit(config, e)}
+                    className="px-2.5 py-1.5 rounded-xl text-xs bg-gray-100 text-gray-500 hover:bg-gray-200 transition-colors"
+                    title="Rename"
+                  >
+                    ✏️
+                  </button>
+                  <button
+                    className={`px-2.5 py-1.5 rounded-xl text-xs font-semibold transition-colors ${
+                      pendingDelete
+                        ? 'bg-red-500 text-white'
+                        : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                    }`}
+                    onClick={e => { e.stopPropagation(); handleDelete(config.device_id); }}
+                  >
+                    {pendingDelete ? 'Sure?' : '🗑️'}
+                  </button>
+                </div>
+              )}
             </div>
           );
         })}
 
-        {/* Divider */}
+        {/* ── Add a Potato ── */}
         <div className="pt-4 border-t border-white/50">
           <p className="text-xs text-gray-500 font-semibold uppercase tracking-wide mb-3">
             Add a Potato
           </p>
 
-          <Button
-            className="w-full mb-2"
-            onClick={() => navigate('/')}
-          >
+          <Button className="w-full mb-2" onClick={() => navigate('/?new=1')}>
             🚀 Set up a new Potato
           </Button>
 
@@ -177,11 +335,26 @@ export const MyPotatoesPage = () => {
               Already have one? Add by Device ID
             </button>
           ) : (
-            <div className="bg-white/80 rounded-2xl p-4">
-              <p className="text-xs text-gray-500 mb-2">
-                Enter the 8-character Device ID (shown in serial monitor at boot, e.g.{' '}
-                <span className="font-mono">30AEA406</span>)
+            <div className="bg-white/80 rounded-2xl p-4 space-y-3">
+              <p className="text-xs text-gray-500">
+                Scan the QR code on your Potato, or enter the 8-character Device ID manually
+                (shown in the serial monitor at boot, e.g.{' '}
+                <span className="font-mono">30AEA406</span>).
               </p>
+
+              {/* QR scan button */}
+              <button
+                onClick={() => { setQrError(''); setShowQR(true); }}
+                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-primary/10 text-primary rounded-xl text-sm font-semibold hover:bg-primary/20 transition-colors"
+              >
+                📷 Scan QR Code
+              </button>
+
+              {qrError && (
+                <p className="text-xs text-red-500">{qrError}</p>
+              )}
+
+              {/* Manual input */}
               <div className="flex gap-2">
                 <input
                   type="text"
@@ -192,7 +365,7 @@ export const MyPotatoesPage = () => {
                   className="flex-1 px-3 py-2 border-2 border-gray-300 rounded-xl font-mono text-sm focus:border-primary focus:outline-none"
                 />
                 <Button
-                  onClick={handleAddById}
+                  onClick={() => addById(addIdInput)}
                   disabled={addIdInput.trim().length < 6}
                 >
                   Add →
@@ -202,6 +375,14 @@ export const MyPotatoesPage = () => {
           )}
         </div>
       </div>
+
+      {/* QR Scanner overlay */}
+      {showQR && (
+        <QRScanner
+          onResult={handleQRResult}
+          onClose={() => setShowQR(false)}
+        />
+      )}
     </div>
   );
 };

@@ -40,6 +40,15 @@ export const OnboardingFlow = () => {
     const savedConfig = loadPotatoConfig();
 
     const tryAutoDiscover = async () => {
+      // ?new=1 means the user explicitly wants to onboard a NEW device —
+      // skip all auto-redirect and discovery logic.
+      const urlParams = new URLSearchParams(window.location.search);
+      if (urlParams.get('new') === '1') {
+        console.log('[OnboardingFlow] ?new=1 — skipping auto-redirect for new device setup');
+        setIsDiscovering(false);
+        return;
+      }
+
       setIsDiscovering(true);
 
       if (savedConfig && savedConfig.setup_complete) {
