@@ -109,6 +109,8 @@ BLEServer *bleServer = nullptr;
 bool bleEnabled = false;
 bool wifiConfigReceived = false;
 bool gpsConfigReceived = false;
+bool restartScheduled = false;    // Triggers a soft restart from the main loop
+unsigned long restartAt = 0;      // millis() timestamp when restart should fire
 
 // WiFi connection status tracking
 bool wifiConnecting = false;
@@ -483,8 +485,14 @@ void connectToWiFiViaBLE() {
     server.begin();
     Serial.println("HTTP server started on port 8080 with CORS enabled");
 
+    // Clear bleEnabled BEFORE notifying so that if onDisconnect() fires
+    // immediately after the phone receives the notification (race condition),
+    // it sees bleEnabled == false and calls deinit() rather than restarting
+    // BLE advertising and blocking SSL RAM.
+    bleEnabled = false;
+
     // Notify success via BLE
-    if (bleEnabled && statusCharacteristic) {
+    if (statusCharacteristic) {
       String successJson = "{";
       successJson += "\"status\":\"wifi_connected\",";
       successJson += "\"local_ip\":\"" + ip.toString() + "\",";
@@ -499,14 +507,12 @@ void connectToWiFiViaBLE() {
       Serial.println("Sent WiFi success notification via BLE");
     }
 
-    // Signal that BLE should shut down once the client disconnects.
-    // We must NOT call deinit() here — the BLE connection is still live and
-    // the phone needs to receive the success notification cleanly first.
-    // deinit(true) will be called from onDisconnect() when bleEnabled == false.
-    bleEnabled = false;
-
-    // Initialize time
-    configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
+    // Schedule a soft restart so the device boots cleanly with saved credentials.
+    // On the next boot it follows the normal path: NTP → SSL → relay registration.
+    // 5 s gives the PWA time to receive the BLE notification and complete /health.
+    restartScheduled = true;
+    restartAt = millis() + 5000;
+    Serial.println("[SYS] Restart scheduled in 5 s to initialize relay cleanly");
 
   } else {
     Serial.println("WiFi connection failed");
@@ -1679,6 +1685,13 @@ void loop() {
   // Handle WebSocket relay connection (only when WiFi connected)
   if (WiFi.status() == WL_CONNECTED) {
     wsClient.loop();
+  }
+
+  // Scheduled restart (used after BLE onboarding to get a clean boot with relay init)
+  if (restartScheduled && millis() >= restartAt) {
+    Serial.println("[SYS] Restarting to complete relay initialization...");
+    delay(100);
+    ESP.restart();
   }
 
   // Monitor WiFi connection progress (non-blocking)
