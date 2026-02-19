@@ -3,7 +3,6 @@ import { useI18n } from '../../hooks/useI18n';
 import { Button } from '../ui/Button';
 import { Card } from '../ui/Card';
 import { PotatoAnimation } from '../animations/PotatoAnimation';
-import { checkBrowserSupport } from '../../utils/helpers';
 
 interface WelcomeScreenProps {
   onStart: () => void;
@@ -21,7 +20,6 @@ interface BeforeInstallPromptEvent extends Event {
 
 export const WelcomeScreen = ({ onStart, deviceId, isDiscovering = false, deviceOffline = false, onGoToDashboard, onReconfigure }: WelcomeScreenProps) => {
   const { t } = useI18n();
-  const capabilities = checkBrowserSupport();
   const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [isInstalled, setIsInstalled] = useState(false);
 
