@@ -511,8 +511,8 @@ void connectToWiFiViaBLE() {
     // On the next boot it follows the normal path: NTP → SSL → relay registration.
     // 5 s gives the PWA time to receive the BLE notification and complete /health.
     restartScheduled = true;
-    restartAt = millis() + 5000;
-    Serial.println("[SYS] Restart scheduled in 5 s to initialize relay cleanly");
+    restartAt = millis() + 1000;
+    Serial.println("[SYS] Restart scheduled in 1 s to initialize relay cleanly");
 
   } else {
     Serial.println("WiFi connection failed");
