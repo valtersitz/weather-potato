@@ -154,7 +154,7 @@ int ledFogBrightness = 40;
 bool ledFogInc = true;
 
 // Buzzer note sequencer state
-const int SEQ_MAX = 32;           // max 32 notes per melody
+const int SEQ_MAX = 128;          // max 128 notes per melody
 int seqFreq[SEQ_MAX];
 int seqDur[SEQ_MAX];
 int seqDuty[SEQ_MAX];             // LEDC duty 0-255; 0 = rest
@@ -2187,124 +2187,191 @@ void setLEDRGB(int temperature) {
 // Each note slot: freq (Hz, 0=rest), duration (ms), duty (0-255),
 //                 vibDepth (±Hz range, 0=off), vibRate (ms per LFO step).
 // Vibrato uses a triangle LFO: freq oscillates ±vibDepth at 1 Hz/step
-// every vibRate ms — perceptually identical to the micro-vibrato described.
+// every vibRate ms.
 void startWeatherMelody(String condition) {
-  int f[SEQ_MAX], d[SEQ_MAX], du[SEQ_MAX], vd[SEQ_MAX], vr[SEQ_MAX];
+  // Static to avoid 2.5 KB of stack allocation on each call.
+  static int f[SEQ_MAX], d[SEQ_MAX], du[SEQ_MAX], vd[SEQ_MAX], vr[SEQ_MAX];
   int n = 0;
 
-  // Helper: zero-fill vibrato arrays
-  auto noVib = [&]() { for (int i=0;i<n;i++) { vd[i]=0; vr[i]=0; } };
+  // Clear vibrato arrays; individual melodies set non-zero values below.
+  memset(vd, 0, sizeof(vd));
+  memset(vr, 0, sizeof(vr));
 
   if (condition == "clear_sky") {
-    // ☀️ Joyful sunrise — C5 E5 G5 C6 pause G5
-    int tf[] = {523, 659, 784, 1047,   0, 784};
-    int td[] = {120, 120, 120,  180, 150, 600};
-    int tdu[]= {128, 128, 128,  128,   0, 128};
-    n=6; memcpy(f,tf,n*4); memcpy(d,td,n*4); memcpy(du,tdu,n*4); noVib();
+    // ☀️ Game-win jingle — Jingle A × 2 + sparkle (~6.5s)
+    int tf[] = {523,659,784,1047,  0,784,659,523,  0,   // Jingle A
+                523,659,784,1047,  0,784,659,523,  0,   // Jingle A repeat
+                1047,1319,1568,  0,1047};                // Sparkle ending
+    int td[] = {140,140,140,220, 80,140,140,240,160,
+                140,140,140,220, 80,140,140,240,160,
+                120,120,160,120,600};
+    int tdu[]= {128,128,128,128,  0,128,128,128,  0,
+                128,128,128,128,  0,128,128,128,  0,
+                128,128,128,  0,128};
+    n=23; memcpy(f,tf,n*4); memcpy(d,td,n*4); memcpy(du,tdu,n*4);
 
   } else if (condition == "light_clouds") {
-    // 🌤 Gentle sway — C5 D5 C5 G4
-    int tf[] = {523, 587, 523, 392};
-    int td[] = {150, 150, 150, 300};
-    int tdu[]= {100, 100, 100, 100};
-    n=4; memcpy(f,tf,n*4); memcpy(d,td,n*4); memcpy(du,tdu,n*4); noVib();
+    // 🌤 Bouncy joyful — motif × 3 + ta-da (~5.5s)
+    int tf[] = {523,587,659,784,  0,659,587,523,  0,   // motif
+                523,587,659,784,  0,659,587,523,  0,
+                523,587,659,784,  0,659,587,523,  0,
+                784,1047};                              // ta-da
+    int td[] = {160,160,160,220,120,160,160,260,180,
+                160,160,160,220,120,160,160,260,180,
+                160,160,160,220,120,160,160,260,180,
+                180,450};
+    int tdu[]= {128,128,128,128,  0,128,128,128,  0,
+                128,128,128,128,  0,128,128,128,  0,
+                128,128,128,128,  0,128,128,128,  0,
+                128,128};
+    n=29; memcpy(f,tf,n*4); memcpy(d,td,n*4); memcpy(du,tdu,n*4);
 
   } else if (condition == "partly_cloudy") {
-    // 🌥 Question mark — E5 G5 E5 pause F5 (unresolved tension)
-    int tf[] = {659, 784, 659,   0, 698};
-    int td[] = {150, 150, 150, 200, 500};
-    int tdu[]= {100, 100, 100,   0, 100};
-    n=5; memcpy(f,tf,n*4); memcpy(d,td,n*4); memcpy(du,tdu,n*4); noVib();
+    // 🌥 Happy + quirky — rise × 2 + question tag × 2 + bright resolve (~6.5s)
+    int tf[] = {659,784,1047,784,659,  0,   // rise 1
+                659,784,1047,784,659,  0,   // rise 2
+                698,  0,784,  0,            // question tag 1
+                698,  0,784,  0,            // question tag 2
+                1047};                      // bright resolve
+    int td[] = {140,140,180,140,220,120,
+                140,140,180,140,220,120,
+                180, 60,180,120,
+                180, 60,180,120,
+                700};
+    int tdu[]= {128,128,128,128,128,  0,
+                128,128,128,128,128,  0,
+                128,  0,128,  0,
+                128,  0,128,  0,
+                128};
+    n=21; memcpy(f,tf,n*4); memcpy(d,td,n*4); memcpy(du,tdu,n*4);
 
   } else if (condition == "cloudy") {
-    // ☁️ Melodramatic sigh — G4 F4 D4 C4 (slow vibrato on final note)
-    int tf[] = {392, 349, 294, 262};
-    int td[] = {300, 300, 300, 500};
-    int tdu[]= {128, 128, 128, 128};
-    int tvd[]= {  0,   0,   0,   5}; // ±5 Hz vibrato on C4 only
-    int tvr[]= {  0,   0,   0,  25}; // step every 25ms
-    n=4; memcpy(f,tf,n*4); memcpy(d,td,n*4); memcpy(du,tdu,n*4);
-    memcpy(vd,tvd,n*4); memcpy(vr,tvr,n*4);
+    // ☁️ Sad sigh — slow descend + vibrato on final C4 (~5s)
+    int tf[] = {392,349,294,262,  0,262};
+    int td[] = {320,320,320,800,200,900};
+    int tdu[]= {128,128,128,128,  0,128};
+    n=6; memcpy(f,tf,n*4); memcpy(d,td,n*4); memcpy(du,tdu,n*4);
+    vd[5]=5; vr[5]=25;   // ±5 Hz vibrato on final C4
 
   } else if (condition == "light_fog") {
-    // 🌫 Ghost whisper — A3 pause A3 pause A3 (subtle ±3Hz vibrato)
-    int tf[] = {220,   0, 220,   0, 220};
-    int td[] = {200, 150, 200, 150, 800};
-    int tdu[]= {128,   0, 128,   0, 128};
-    int tvd[]= {  3,   0,   3,   0,   3};
-    int tvr[]= { 25,   0,  25,   0,  25};
+    // 🌫 Ghost whisper — A3 × 3 with subtle ±3Hz vibrato (~5s)
+    int tf[] = {220,  0,220,  0,220};
+    int td[] = {220,180,220,180,1200};
+    int tdu[]= {128,  0,128,  0,128};
+    int tvd[]= {  3,  0,  3,  0,  3};
+    int tvr[]= { 25,  0, 25,  0, 25};
     n=5; memcpy(f,tf,n*4); memcpy(d,td,n*4); memcpy(du,tdu,n*4);
     memcpy(vd,tvd,n*4); memcpy(vr,tvr,n*4);
 
   } else if (condition == "dense_fog") {
-    // 🌁 Foghorn — F3 pause D3 pause F3 (slow ±5Hz vibrato on tone notes)
-    int tf[] = {175,   0, 147,   0, 175};
-    int td[] = {400, 200, 400, 200, 800};
-    int tdu[]= {128,   0, 128,   0, 128};
-    int tvd[]= {  5,   0,   5,   0,   5};
-    int tvr[]= { 30,   0,  30,   0,  30};
+    // 🌁 Foghorn — F3 D3 F3 with ±5Hz vibrato (~6s)
+    int tf[] = {175,  0,147,  0,175};
+    int td[] = {500,250,500,250,1200};
+    int tdu[]= {128,  0,128,  0,128};
+    int tvd[]= {  5,  0,  5,  0,  5};
+    int tvr[]= { 30,  0, 30,  0, 30};
     n=5; memcpy(f,tf,n*4); memcpy(d,td,n*4); memcpy(du,tdu,n*4);
     memcpy(vd,tvd,n*4); memcpy(vr,tvr,n*4);
 
   } else if (condition == "drizzle") {
-    // 🌦 Nervous tick — 10 × (C6 50ms + pause 30ms), thin duty
-    int tf[] = {1047,0,1047,0,1047,0,1047,0,1047,0,
-                1047,0,1047,0,1047,0,1047,0,1047,0};
-    int td[] = {  50,30,  50,30,  50,30,  50,30,  50,30,
-                  50,30,  50,30,  50,30,  50,30,  50,30};
-    int tdu[]= {  25, 0,  25, 0,  25, 0,  25, 0,  25, 0,
-                  25, 0,  25, 0,  25, 0,  25, 0,  25, 0};
-    n=20; memcpy(f,tf,n*4); memcpy(d,td,n*4); memcpy(du,tdu,n*4); noVib();
+    // 🌦 Nervous tick — 12 × C6 55ms (~3s, thin duty)
+    int tf[] = {1047,0,1047,0,1047,0,1047,0,1047,0,1047,0,
+                1047,0,1047,0,1047,0,1047,0,1047,0,1047,0};
+    int td[] = {  55,35,  55,35,  55,35,  55,35,  55,35,  55,35,
+                  55,35,  55,35,  55,35,  55,35,  55,35,  55,35};
+    int tdu[]= {  25, 0,  25, 0,  25, 0,  25, 0,  25, 0,  25, 0,
+                  25, 0,  25, 0,  25, 0,  25, 0,  25, 0,  25, 0};
+    n=24; memcpy(f,tf,n*4); memcpy(d,td,n*4); memcpy(du,tdu,n*4);
 
-  } else if (condition == "freezing_rain") {
-    // 🧊 Icy laser — E6 pause E6 pause B5 (sharp, dry, low duty)
-    int tf[] = {1319,   0, 1319,   0,  988};
-    int td[] = { 120, 100,  120, 100,  250};
-    int tdu[]= {  25,   0,   25,   0,   25};
-    n=5; memcpy(f,tf,n*4); memcpy(d,td,n*4); memcpy(du,tdu,n*4); noVib();
-
-  } else if (condition == "rain") {
-    // 🌧 Steady groove — 3 × triplet G4 (slight freq jitter for realism)
-    int tf[] = {392,388,396, 0, 392,390,395, 0, 392,386,398, 0};
-    int td[] = {120,120,120,150, 120,120,120,150, 120,120,120,150};
-    int tdu[]= { 64, 64, 64,  0,  64, 64, 64,  0,  64, 64, 64,  0};
-    n=12; memcpy(f,tf,n*4); memcpy(d,td,n*4); memcpy(du,tdu,n*4); noVib();
+  } else if (condition == "rain_light" || condition == "rain") {
+    // 🌧 Soft rain — 15 G4 drops (jitter ±12Hz) + pause + 3 triplet groups (~7s)
+    static const int drops[] = {392,382,400,388,396,380,404,390,398,384,
+                                 392,402,385,395,380};
+    n = 0;
+    for (int i = 0; i < 15; i++) {
+      f[n]=drops[i]; d[n]=90; du[n]=96; n++;
+      f[n]=0;        d[n]=40; du[n]= 0; n++;
+    }
+    f[n]=0; d[n]=200; du[n]=0; n++;                    // section break
+    for (int g = 0; g < 3; g++) {
+      for (int k = 0; k < 3; k++) { f[n]=330; d[n]=120; du[n]=96; n++; }
+      f[n]=0; d[n]=140; du[n]=0; n++;
+    }
+    // n = 30 + 1 + 12 = 43
 
   } else if (condition == "rain_shower") {
-    // 🌧🌦 Fast cascade — C6 B5 A5 G5 F5 E5 D5
-    int tf[] = {1047, 988, 880, 784, 698, 659, 587};
-    int td[] = {  80,  80,  80,  80,  80,  80, 120};
-    int tdu[]= {  64,  64,  64,  64,  64,  64,  64};
-    n=7; memcpy(f,tf,n*4); memcpy(d,td,n*4); memcpy(du,tdu,n*4); noVib();
+    // 🌧🌦 Dense shower — burst + cascade + burst (~8s)
+    static const int b1[] = {349,330,370,338,362,325,355,374,340,328,
+                              349,368,330,374,345,324,360,340,374,328};
+    static const int b2[] = {349,334,370,345,358,324,366,340,352,328,
+                              374,335,349,360,330};
+    static const int casc_f[] = {1047,988,880,784,698,659,587};
+    static const int casc_d[] = {  70, 70, 70, 70, 70, 70,140};
+    n = 0;
+    for (int i=0;i<20;i++) { f[n]=b1[i]; d[n]=70; du[n]=96; n++; f[n]=0; d[n]=25; du[n]=0; n++; }
+    for (int i=0;i<7; i++) { f[n]=casc_f[i]; d[n]=casc_d[i]; du[n]=96; n++; }
+    f[n]=0; d[n]=180; du[n]=0; n++;
+    for (int i=0;i<15;i++) { f[n]=b2[i]; d[n]=70; du[n]=96; n++; f[n]=0; d[n]=25; du[n]=0; n++; }
+    // n = 40 + 7 + 1 + 30 = 78
+
+  } else if (condition == "heavy_rain") {
+    // 🌧🌧 Pouring rain — 50 dense jittered drops (E4 ±45Hz) + gutter splashes (~9s)
+    static const int jit[] = {330,285,370,310,355,295,340,375,300,325,
+                               360,285,345,315,370,290,330,285,350,310,
+                               375,295,330,360,285,345,320,370,295,330,
+                               285,355,310,375,290,340,285,360,315,330,
+                               370,285,345,300,375,310,330,285,360,330};
+    static const int pb_f[] = {262,  0,294,  0,262,  0,247};
+    static const int pb_d[] = {160, 80,160, 80,200,120,350};
+    static const int pb_du[]= {128,  0,128,  0,128,  0,128};
+    n = 0;
+    for (int i=0;i<50;i++) { f[n]=jit[i]; d[n]=55; du[n]=96; n++; f[n]=0; d[n]=15; du[n]=0; n++; }
+    f[n]=0; d[n]=120; du[n]=0; n++;                    // gap before splashes
+    for (int i=0;i<7;i++) { f[n]=pb_f[i]; d[n]=pb_d[i]; du[n]=pb_du[i]; n++; }
+    // n = 100 + 1 + 7 = 108
+
+  } else if (condition == "freezing_rain") {
+    // 🧊 Icy stabs — E6 E6 B5 E6 A5 (sharp, low duty ~5s)
+    int tf[] = {1319,  0,1319,  0, 988,  0,1319,  0, 880};
+    int td[] = { 120,120, 120,120, 260,220, 120,120, 500};
+    int tdu[]= {  25,  0,  25,  0,  25,  0,  25,  0,  25};
+    n=9; memcpy(f,tf,n*4); memcpy(d,td,n*4); memcpy(du,tdu,n*4);
 
   } else if (condition == "snow") {
     // ❄️ Crystal sparkle — C6 pause G5 pause E6 (high, airy, sparse)
-    int tf[] = {1047,   0,  784,   0, 1319};
-    int td[] = { 120, 250,  120, 250,  150};
-    int tdu[]= { 128,   0,  128,   0,  128};
-    n=5; memcpy(f,tf,n*4); memcpy(d,td,n*4); memcpy(du,tdu,n*4); noVib();
+    int tf[] = {1047,  0, 784,  0,1319};
+    int td[] = { 120,250, 120,250, 150};
+    int tdu[]= { 128,  0, 128,  0, 128};
+    n=5; memcpy(f,tf,n*4); memcpy(d,td,n*4); memcpy(du,tdu,n*4);
 
   } else if (condition == "snow_shower") {
     // 🌨 Playful snowfall — C6 G5 E6 G5 C6
-    int tf[] = {1047, 784, 1319, 784, 1047};
-    int td[] = { 120, 120,  120, 120,  200};
-    int tdu[]= { 128, 128,  128, 128,  128};
-    n=5; memcpy(f,tf,n*4); memcpy(d,td,n*4); memcpy(du,tdu,n*4); noVib();
+    int tf[] = {1047,784,1319,784,1047};
+    int td[] = { 120,120, 120,120, 200};
+    int tdu[]= { 128,128, 128,128, 128};
+    n=5; memcpy(f,tf,n*4); memcpy(d,td,n*4); memcpy(du,tdu,n*4);
 
   } else if (condition == "thunderstorm") {
-    // ⛈ Drama queen — 8× C3↔D3 rumble (30ms each) + pause + C6 crack
-    // The rapid alternation IS the heavy vibrato on the low register
-    int tf[] = {131,147,131,147,131,147,131,147,
-                131,147,131,147,131,147,131,147,   0, 1047};
-    int td[] = { 30, 30, 30, 30, 30, 30, 30, 30,
-                 30, 30, 30, 30, 30, 30, 30, 30, 200,   80};
-    int tdu[]= { 50, 50, 50, 50, 50, 50, 50, 50,
-                 50, 50, 50, 50, 50, 50, 50, 50,   0,  128};
-    n=18; memcpy(f,tf,n*4); memcpy(d,td,n*4); memcpy(du,tdu,n*4); noVib();
+    // ⛈ Drama — rumble + lightning crack + after-rumble + scary low hit (~8s)
+    n = 0;
+    // Rumble phase 1: 14 × C3↔D3 (30ms each) = 840ms
+    for (int i=0;i<14;i++) { f[n]=131; d[n]=30; du[n]=50; n++; f[n]=147; d[n]=30; du[n]=50; n++; }
+    f[n]=0; d[n]=220; du[n]=0; n++;                    // pause
+    // Lightning crack: C6 + pause + E6
+    f[n]=1047; d[n]=70; du[n]=128; n++;
+    f[n]=   0; d[n]=70; du[n]=  0; n++;
+    f[n]=1319; d[n]=60; du[n]=128; n++;
+    f[n]=0; d[n]=250; du[n]=0; n++;                    // pause
+    // After-rumble: 8 × C3↔D3 (35ms each) = 560ms
+    for (int i=0;i<8;i++) { f[n]=131; d[n]=35; du[n]=50; n++; f[n]=147; d[n]=35; du[n]=50; n++; }
+    f[n]=0; d[n]=180; du[n]=0; n++;                    // pause
+    // Final A2 with ±8Hz vibrato
+    f[n]=110; d[n]=600; du[n]=128; vd[n]=8; vr[n]=20; n++;
+    // n = 28 + 1 + 3 + 1 + 16 + 1 + 1 = 51
 
   } else {
     // Fallback: single neutral beep
-    f[0]=440; d[0]=400; du[0]=128; vd[0]=0; vr[0]=0; n=1;
+    f[0]=440; d[0]=400; du[0]=128; n=1;
   }
 
   // Load into sequencer globals
@@ -2394,8 +2461,8 @@ void interpretWeatherSymbol(int code, int temperature) {
     case 56:                                              // Light freezing drizzle
     case 57: weatherCondition = "freezing_rain"; break;   // Dense freezing drizzle
     case 61:                                              // Slight rain
-    case 63:                                              // Moderate rain
-    case 65: weatherCondition = "rain"; break;            // Heavy rain
+    case 63: weatherCondition = "rain_light"; break;      // Moderate rain
+    case 65: weatherCondition = "heavy_rain"; break;      // Heavy rain
     case 66:                                              // Light freezing rain
     case 67: weatherCondition = "freezing_rain"; break;   // Heavy freezing rain
     case 71:                                              // Slight snowfall
@@ -2403,8 +2470,8 @@ void interpretWeatherSymbol(int code, int temperature) {
     case 75:                                              // Heavy snowfall
     case 77: weatherCondition = "snow"; break;            // Snow grains
     case 80:                                              // Slight rain showers
-    case 81:                                              // Moderate rain showers
-    case 82: weatherCondition = "rain_shower"; break;     // Violent rain showers
+    case 81: weatherCondition = "rain_shower"; break;     // Moderate rain showers
+    case 82: weatherCondition = "heavy_rain"; break;      // Violent rain showers
     case 85:                                              // Slight snow showers
     case 86: weatherCondition = "snow_shower"; break;     // Heavy snow showers
     case 95: weatherCondition = "thunderstorm"; break;    // Thunderstorm
