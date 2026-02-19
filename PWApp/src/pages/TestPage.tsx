@@ -23,25 +23,34 @@ const CONDITIONS = [
 type ConditionId = typeof CONDITIONS[number]['id'];
 
 // Colour swatch matching the ESP32 getTemperatureColor gradient
+// ≤-10: blue | -10→0: blue→cyan | 0→10: cyan→green | 10→15: green→green-yellow
+// 15→20: green-yellow→yellow-orange | 20→25: yellow-orange→orange-red | 25→30+: orange-red→red
 function tempToColor(t: number): string {
-  const clamp = Math.max(-10, Math.min(40, t));
+  const clamp = Math.max(-20, Math.min(40, t));
   const lerp = (a: number, b: number, f: number) => Math.round(a + (b - a) * f);
   let r: number, g: number, b: number;
-  if (clamp <= 0) {
+  if (clamp <= -10) {
+    r = 0; g = 0; b = 255;
+  } else if (clamp <= 0) {
     const f = (clamp + 10) / 10;
     r = 0; g = lerp(0, 200, f); b = 255;
   } else if (clamp <= 10) {
     const f = clamp / 10;
-    r = 0; g = lerp(200, 255, f); b = lerp(255, 80, f);
+    r = 0; g = lerp(200, 255, f); b = lerp(255, 0, f);
+  } else if (clamp <= 15) {
+    const f = (clamp - 10) / 5;
+    r = lerp(0, 150, f); g = 255; b = 0;
   } else if (clamp <= 20) {
-    const f = (clamp - 10) / 10;
-    r = lerp(0, 200, f); g = 255; b = lerp(80, 0, f);
+    const f = (clamp - 15) / 5;
+    r = lerp(150, 255, f); g = lerp(255, 160, f); b = 0;
+  } else if (clamp <= 25) {
+    const f = (clamp - 20) / 5;
+    r = 255; g = lerp(160, 60, f); b = 0;
   } else if (clamp <= 30) {
-    const f = (clamp - 20) / 10;
-    r = lerp(200, 255, f); g = lerp(255, 120, f); b = 0;
+    const f = (clamp - 25) / 5;
+    r = 255; g = lerp(60, 0, f); b = 0;
   } else {
-    const f = (clamp - 30) / 10;
-    r = 255; g = lerp(120, 0, f); b = 0;
+    r = 255; g = 0; b = 0;
   }
   return `rgb(${r},${g},${b})`;
 }
@@ -114,14 +123,14 @@ export const TestPage = () => {
           </div>
           <input
             type="range"
-            min={-10}
+            min={-20}
             max={40}
             value={temperature}
             onChange={e => setTemperature(Number(e.target.value))}
             className="w-full accent-primary"
           />
           <div className="flex justify-between text-xs text-gray-400 mt-1">
-            <span>-10°C 🧊</span>
+            <span>-20°C ❄️</span>
             <span>40°C 🔥</span>
           </div>
         </Card>

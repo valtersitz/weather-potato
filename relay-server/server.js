@@ -117,6 +117,31 @@ wss.on('connection', (ws) => {
         } else {
           console.log(`[Relay] ⚠️  No PWA client found for response ${requestId}`);
         }
+
+      } else if (msg.type === 'ota_request') {
+        // Client (PWA or trigger script) → device: start OTA from URL
+        const deviceId = msg.device_id;
+        const deviceWs = devices.get(deviceId);
+
+        if (!deviceWs || deviceWs.readyState !== 1) {
+          console.log(`[Relay] ❌ OTA: device ${deviceId} offline`);
+          ws.send(JSON.stringify({ type: 'error', error: 'Device offline or not found' }));
+          return;
+        }
+
+        console.log(`[Relay] 🔧 Forwarding OTA request to ${deviceId}: ${msg.url}`);
+        deviceWs.send(data.toString());
+
+      } else if (msg.type === 'ota_progress') {
+        // Device → all subscribers: broadcast OTA progress
+        const deviceId = msg.device_id;
+        const subs = subscribers.get(deviceId);
+        console.log(`[Relay] 📊 OTA progress from ${deviceId}: ${msg.status} ${msg.progress}%`);
+        if (subs && subs.size > 0) {
+          subs.forEach((subWs) => {
+            if (subWs.readyState === 1) subWs.send(data.toString());
+          });
+        }
       }
 
     } catch (err) {

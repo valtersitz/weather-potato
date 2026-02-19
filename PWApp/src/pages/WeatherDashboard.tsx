@@ -99,13 +99,6 @@ export const WeatherDashboard = () => {
             >
               🗺️ Map
             </Button>
-            <Button
-              variant="ghost"
-              onClick={() => navigate('/test')}
-              title="Test light & sound"
-            >
-              🔬
-            </Button>
             {!waitingForTouch && (
               <Button
                 variant="secondary"
@@ -220,8 +213,15 @@ export const WeatherDashboard = () => {
           </Card>
         )}
 
+        {/* Test light & sound */}
+        <div className="mt-4 text-center">
+          <Button variant="ghost" onClick={() => navigate('/test')}>
+            🔬 Test light &amp; sound
+          </Button>
+        </div>
+
         {/* Device Info */}
-        <div className="mt-4 text-center text-xs text-gray-500">
+        <div className="mt-2 text-center text-xs text-gray-500">
           <p>Device: {config.device_id}</p>
           <p>Endpoint: {config.endpoint}</p>
         </div>

@@ -111,40 +111,23 @@ export const WeatherPotato = ({ condition, temperature }: WeatherPotatoProps) =>
   const potato = getPotatoExpression();
 
   return (
-    <div className="flex flex-col items-center justify-center py-8">
-      {/* Potato character */}
+    <div className="flex flex-col items-center justify-center py-6">
+      {/* Accessory emoji above the potato */}
+      <div className="text-5xl mb-2">{potato.accessory}</div>
+
+      {/* Potato body */}
       <div
-        className={`relative ${bounce ? 'animate-bounce' : ''}`}
-        style={{ transition: 'transform 0.3s ease' }}
+        className={`filter drop-shadow-2xl bg-gradient-to-br ${potato.color} rounded-full flex items-center justify-center ${bounce ? 'animate-bounce' : ''}`}
+        style={{ width: '180px', height: '180px', transition: 'transform 0.3s ease' }}
       >
-        {/* Accessory (top) */}
-        <div className="absolute -top-8 left-1/2 transform -translate-x-1/2 text-5xl">
-          {potato.accessory}
-        </div>
-
-        {/* Potato body with gradient background */}
-        <div
-          className={`relative text-9xl filter drop-shadow-2xl bg-gradient-to-br ${potato.color} rounded-full p-8`}
-          style={{
-            width: '200px',
-            height: '200px',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center'
-          }}
-        >
-          <span className="text-8xl">{potato.body}</span>
-
-          {/* Face overlay */}
-          <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-4xl">
-            {potato.face}
-          </div>
-        </div>
+        <span className="text-7xl">{potato.body}</span>
       </div>
 
+      {/* Mood / face indicator below the potato */}
+      <div className="text-4xl mt-3">{potato.face}</div>
+
       {/* Speech bubble */}
-      <div className="mt-8 bg-white rounded-2xl px-6 py-3 shadow-lg relative">
-        {/* Triangle pointer */}
+      <div className="mt-4 bg-white rounded-2xl px-6 py-3 shadow-lg relative">
         <div
           className="absolute -top-2 left-1/2 transform -translate-x-1/2 w-0 h-0"
           style={{

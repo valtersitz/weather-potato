@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom';
 import { MapContainer, TileLayer, Marker, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { loadPotatoConfig } from '../services/localConnectionService';
 import { connectionService } from '../services/connectionService';
@@ -210,169 +209,115 @@ export const MapPage = () => {
                      tempCoordinates.longitude !== coordinates.longitude;
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-primary-light via-accent/30 to-secondary-light p-4">
-      <div className="max-w-4xl mx-auto">
-        {/* Header */}
-        <div className="flex items-center justify-between mb-6">
-          <div className="flex items-center gap-3">
-            <Button
-              variant="secondary"
-              onClick={() => navigate('/dashboard')}
-            >
-              ← Back
-            </Button>
-            <h1 className="text-3xl font-bold gradient-text">
-              🗺️ Location Setup
-            </h1>
-          </div>
-        </div>
-
-        {/* Map Card */}
-        <Card className="mb-6">
-          {/* Card header: title + validate button */}
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-xl font-bold text-gray-700">
-              Set Weather Location
-            </h2>
-            <Button
-              onClick={handleUpdateLocation}
-              disabled={!hasChanges || loading}
-              loading={loading}
-            >
-              {loading ? 'Updating...' : '🌤️ Get Weather from There'}
-            </Button>
-          </div>
-
-          {/* City Search */}
-          <div className="mb-4 relative">
-            <label className="block text-sm font-semibold text-gray-700 mb-2">
-              🔍 Search for a city
-            </label>
-            <input
-              type="text"
-              value={citySearch}
-              onChange={(e) => setCitySearch(e.target.value)}
-              onFocus={() => searchResults.length > 0 && setShowResults(true)}
-              className="w-full px-4 py-3 border-2 border-gray-300 rounded-xl focus:border-primary focus:outline-none text-lg"
-              placeholder="Type a city name..."
-            />
-
-            {/* Search Results Dropdown */}
-            {showResults && searchResults.length > 0 && (
-              <div className="absolute z-50 w-full mt-1 bg-white border-2 border-gray-300 rounded-xl shadow-lg max-h-60 overflow-y-auto">
-                {searchResults.map((result) => (
-                  <button
-                    key={result.place_id}
-                    onClick={() => handleSelectCity(result)}
-                    className="w-full px-4 py-3 text-left hover:bg-primary/10 border-b border-gray-100 last:border-b-0 transition-colors"
-                  >
-                    <div className="font-medium text-gray-800">
-                      {result.display_name.split(',')[0]}
-                    </div>
-                    <div className="text-sm text-gray-500">
-                      {result.display_name}
-                    </div>
-                  </button>
-                ))}
-              </div>
-            )}
-
-            {isSearching && (
-              <div className="absolute right-3 top-11 text-primary">
-                <div className="animate-spin">⌛</div>
-              </div>
-            )}
-          </div>
-
-          {/* Interactive Leaflet Map */}
-          <div className="relative w-full h-96 mb-4 rounded-xl overflow-hidden shadow-lg z-10">
-            <MapContainer
-              center={[tempCoordinates.latitude, tempCoordinates.longitude]}
-              zoom={13}
-              className="h-full w-full"
-              key={`${tempCoordinates.latitude}-${tempCoordinates.longitude}`}
-            >
-              <TileLayer
-                attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-                url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-              />
-              <LocationMarker
-                position={tempCoordinates}
-                onPositionChange={setTempCoordinates}
-              />
-            </MapContainer>
-          </div>
-
-          {/* Coordinates Display */}
-          <div className="mb-4 p-3 bg-gray-50 rounded-xl text-center">
-            <p className="text-sm text-gray-600">
-              📍 Selected: <span className="font-mono font-semibold">
-                {tempCoordinates.latitude.toFixed(6)}, {tempCoordinates.longitude.toFixed(6)}
-              </span>
-            </p>
-            <p className="text-xs text-gray-500 mt-1">
-              Click on the map to set a new location
-            </p>
-          </div>
-
-          {/* Use My Location Button */}
+    <div className="min-h-screen flex flex-col bg-gradient-to-br from-primary-light via-accent/30 to-secondary-light">
+      {/* Compact header */}
+      <div className="flex items-center gap-2 px-3 py-2 bg-white/70 backdrop-blur-sm shadow-sm flex-none">
+        <Button
+          variant="secondary"
+          onClick={() => navigate('/dashboard')}
+        >
+          ← Back
+        </Button>
+        <h1 className="text-lg font-bold gradient-text">📍 Location</h1>
+        <div className="ml-auto">
           <Button
-            variant="secondary"
-            onClick={handleUseMyLocation}
-            className="w-full mb-4"
+            onClick={handleUpdateLocation}
+            disabled={!hasChanges || loading}
+            loading={loading}
           >
-            📱 Use My Current Location
+            {loading ? 'Updating...' : '🌤️ Update'}
           </Button>
-
-          {/* Success Message */}
-          {success && (
-            <div className="mb-4 p-4 bg-success/20 rounded-xl">
-              <p className="text-success font-semibold">
-                ✅ Location updated! Going back to dashboard — touch your Potato to get the weather!
-              </p>
-            </div>
-          )}
-
-          {/* Error Message */}
-          {error && (
-            <div className="mb-4 p-4 bg-error/20 rounded-xl">
-              <p className="text-error">⚠️ {error}</p>
-            </div>
-          )}
-
-          {!hasChanges && (
-            <p className="text-center text-sm text-gray-500">
-              Click on the map or search for a city to change location
-            </p>
-          )}
-        </Card>
-
-        {/* Current Location Display */}
-        <Card className="bg-accent/10">
-          <div className="flex items-center justify-between">
-            <div>
-              <h3 className="font-semibold text-gray-700 mb-1">
-                Current Weather Location
-              </h3>
-              <p className="text-sm text-gray-600">
-                📍 {coordinates.latitude.toFixed(6)}, {coordinates.longitude.toFixed(6)}
-              </p>
-            </div>
-            <div className="text-4xl">🥔</div>
-          </div>
-        </Card>
-
-        {/* Info Card */}
-        <div className="mt-4 p-4 bg-white/50 rounded-xl">
-          <h3 className="font-semibold text-gray-700 mb-2">💡 How it works</h3>
-          <ul className="text-sm text-gray-600 space-y-1">
-            <li>• Search for a city by name or click anywhere on the map</li>
-            <li>• Use your current GPS location if nearby</li>
-            <li>• Click "Get Weather from There" to update the location</li>
-            <li>• Weather Potato will fetch weather data for the new coordinates</li>
-            <li>• Return to dashboard to see updated weather</li>
-          </ul>
         </div>
+      </div>
+
+      {/* Compact city search */}
+      <div className="px-3 pt-2 pb-1 flex-none relative z-50">
+        <input
+          type="text"
+          value={citySearch}
+          onChange={(e) => setCitySearch(e.target.value)}
+          onFocus={() => searchResults.length > 0 && setShowResults(true)}
+          className="w-full px-3 py-1.5 border-2 border-gray-300 rounded-xl focus:border-primary focus:outline-none text-sm bg-white/90"
+          placeholder="🔍 Search city..."
+        />
+
+        {/* Search Results Dropdown */}
+        {showResults && searchResults.length > 0 && (
+          <div className="absolute z-50 left-3 right-3 mt-0.5 bg-white border-2 border-gray-300 rounded-xl shadow-lg max-h-48 overflow-y-auto">
+            {searchResults.map((result) => (
+              <button
+                key={result.place_id}
+                onClick={() => handleSelectCity(result)}
+                className="w-full px-3 py-2 text-left hover:bg-primary/10 border-b border-gray-100 last:border-b-0 transition-colors"
+              >
+                <div className="font-medium text-gray-800 text-sm">
+                  {result.display_name.split(',')[0]}
+                </div>
+                <div className="text-xs text-gray-500 truncate">
+                  {result.display_name}
+                </div>
+              </button>
+            ))}
+          </div>
+        )}
+
+        {isSearching && (
+          <div className="absolute right-6 top-3 text-primary text-sm animate-spin">⌛</div>
+        )}
+      </div>
+
+      {/* Map — fills remaining vertical space */}
+      <div className="flex-1 mx-3 mb-2 rounded-xl overflow-hidden shadow-lg z-10 min-h-52">
+        <MapContainer
+          center={[tempCoordinates.latitude, tempCoordinates.longitude]}
+          zoom={13}
+          className="h-full w-full"
+          style={{ minHeight: '208px' }}
+          key={`${tempCoordinates.latitude}-${tempCoordinates.longitude}`}
+        >
+          <TileLayer
+            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+          />
+          <LocationMarker
+            position={tempCoordinates}
+            onPositionChange={setTempCoordinates}
+          />
+        </MapContainer>
+      </div>
+
+      {/* Bottom bar: coordinates + actions */}
+      <div className="flex-none px-3 pb-3 space-y-2">
+        <div className="p-2 bg-white/80 rounded-xl text-center">
+          <p className="text-xs text-gray-600">
+            📍 <span className="font-mono font-semibold">
+              {tempCoordinates.latitude.toFixed(4)}, {tempCoordinates.longitude.toFixed(4)}
+            </span>
+            <span className="text-gray-400"> — tap map to change</span>
+          </p>
+        </div>
+
+        <Button
+          variant="secondary"
+          onClick={handleUseMyLocation}
+          className="w-full"
+        >
+          📱 Use My Current Location
+        </Button>
+
+        {success && (
+          <div className="p-3 bg-success/20 rounded-xl">
+            <p className="text-success text-sm font-semibold">
+              ✅ Location updated! Touch your Potato to refresh.
+            </p>
+          </div>
+        )}
+
+        {error && (
+          <div className="p-3 bg-error/20 rounded-xl">
+            <p className="text-error text-sm">⚠️ {error}</p>
+          </div>
+        )}
       </div>
     </div>
   );

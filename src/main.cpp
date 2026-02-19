@@ -96,6 +96,9 @@ String deviceId = "";        // Generated from MAC address
 String wifiSSID = "";
 String wifiPassword = "";
 String geoLocation = "";
+// OTA security token — generated once at first boot, stored in NVS.
+// Must be supplied in every ota_request; wrong token = update rejected.
+String otaToken = "";
 String lastWeatherCondition = "Unknown";
 int lastTemperature = 0;
 struct tm timeinfo;
@@ -190,6 +193,7 @@ void handleConfigSubmission();
 void handleLocationSubmission();
 void handleOTAPage();
 void handleOTAUpdate();
+void performOTA(const String& firmwareUrl);
 
 // ============================================================================
 // BLE CALLBACKS
@@ -766,7 +770,7 @@ void handleSetupPage() {
               ✅ <strong>Connected to WiFi!</strong><br>
               Network: ${data.ssid}<br>
               IP: ${data.ip}<br><br>
-              <strong>Success!</strong> Reconnect to "${data.ssid}" WiFi and open the PWA!<br><br>
+              <strong>Success!</strong> Reconnect to "${data.ssid}" WiFi and open the Weather Potato App!<br><br>
               <small>Redirecting in 1 second...</small>
             `;
 
@@ -1098,6 +1102,135 @@ void handleOTAUpdate() {
 }
 
 // ============================================================================
+// REMOTE OTA (firmware pull from URL, triggered via relay)
+// ============================================================================
+
+// Send an OTA progress/status update back to relay subscribers.
+// Called from performOTA(); wsConnected must be true.
+static void sendOTAStatus(const char* status, int progress, const char* message = "") {
+  if (!wsConnected) return;
+  DynamicJsonDocument doc(256);
+  doc["type"]      = "ota_progress";
+  doc["device_id"] = deviceId;
+  doc["status"]    = status;
+  doc["progress"]  = progress;
+  if (message && strlen(message) > 0) doc["message"] = message;
+  String msg;
+  serializeJson(doc, msg);
+  wsClient.sendTXT(msg);
+}
+
+// Download firmware from `firmwareUrl` and flash it.
+// Supports HTTP and HTTPS (ISRG Root X1 = Let's Encrypt / ngrok).
+// Progress is broadcast to relay subscribers as ota_progress messages.
+// On success the device restarts; on failure it resumes normal operation.
+void performOTA(const String& firmwareUrl) {
+  Serial.println("[OTA] Starting: " + firmwareUrl);
+
+  // Pause current animations / sounds
+  animationActive = false;
+  seqActive       = false;
+
+  // Visual indicator: dim blue on all LEDs
+  for (int i = 0; i < NUM_LEDS; i++) strip.setPixelColor(i, strip.Color(0, 0, 50));
+  strip.show();
+
+  sendOTAStatus("starting", 0);
+
+  // Set up HTTPS client (ISRG Root X1 covers ngrok; for plain HTTP just ignore cert)
+  WiFiClientSecure secureClient;
+  if (firmwareUrl.startsWith("https://")) {
+    secureClient.setCACert(isrg_root_x1_ca);
+  } else {
+    secureClient.setInsecure();  // plain HTTP — no cert needed
+  }
+
+  HTTPClient http;
+  http.begin(secureClient, firmwareUrl);
+  http.setTimeout(60000);  // 60 s for large downloads
+
+  int httpCode = http.GET();
+  if (httpCode != HTTP_CODE_OK) {
+    Serial.printf("[OTA] HTTP error: %d\n", httpCode);
+    sendOTAStatus("error", 0, ("HTTP " + String(httpCode)).c_str());
+    http.end();
+    // Restore LEDs to off
+    for (int i = 0; i < NUM_LEDS; i++) strip.setPixelColor(i, 0);
+    strip.show();
+    return;
+  }
+
+  int contentLength = http.getSize();  // -1 if chunked
+  Serial.printf("[OTA] Content-Length: %d bytes\n", contentLength);
+
+  if (!Update.begin(contentLength > 0 ? contentLength : UPDATE_SIZE_UNKNOWN)) {
+    String err = Update.errorString();
+    Serial.println("[OTA] Update.begin failed: " + err);
+    sendOTAStatus("error", 0, err.c_str());
+    http.end();
+    return;
+  }
+
+  sendOTAStatus("downloading", 5);
+
+  WiFiClient* stream = http.getStreamPtr();
+  uint8_t buf[1024];
+  size_t written    = 0;
+  int lastProgress  = 5;
+
+  while (http.connected() &&
+         (contentLength == -1 || written < (size_t)contentLength)) {
+    size_t avail = stream->available();
+    if (avail) {
+      size_t toRead = min(avail, sizeof(buf));
+      size_t n      = stream->readBytes(buf, toRead);
+      if (Update.write(buf, n) != n) {
+        sendOTAStatus("error", lastProgress, Update.errorString());
+        http.end();
+        return;
+      }
+      written += n;
+
+      // Report every 5 % and update LED ring
+      if (contentLength > 0) {
+        int prog = 5 + (int)((float)written / contentLength * 90.0f);
+        if (prog >= lastProgress + 5) {
+          lastProgress = prog - (prog % 5);
+          sendOTAStatus("downloading", lastProgress);
+          int litLeds = (int)(NUM_LEDS * (float)written / contentLength);
+          for (int i = 0; i < NUM_LEDS; i++)
+            strip.setPixelColor(i, i < litLeds
+              ? strip.Color(0, 80, 0)   // green = written
+              : strip.Color(0, 0, 40)); // blue  = pending
+          strip.show();
+        }
+      }
+    } else {
+      delay(5);  // yield while waiting for data
+    }
+  }
+
+  if (Update.end(true)) {
+    Serial.printf("[OTA] ✅ Success! Wrote %u bytes — restarting.\n", written);
+    // All green
+    for (int i = 0; i < NUM_LEDS; i++) strip.setPixelColor(i, strip.Color(0, 120, 0));
+    strip.show();
+    sendOTAStatus("success", 100);
+    delay(1000);
+    ESP.restart();
+  } else {
+    String err = Update.errorString();
+    Serial.println("[OTA] ❌ Update.end failed: " + err);
+    sendOTAStatus("error", lastProgress, err.c_str());
+    http.end();
+    for (int i = 0; i < NUM_LEDS; i++) strip.setPixelColor(i, 0);
+    strip.show();
+  }
+
+  http.end();
+}
+
+// ============================================================================
 // WEBSOCKET RELAY HANDLERS
 // ============================================================================
 
@@ -1191,8 +1324,25 @@ void handleWebSocketMessage(const char* payload) {
   }
 
   const char* type = doc["type"];
+
+  // ── Remote OTA triggered from relay ──────────────────────────────────────
+  if (strcmp(type, "ota_request") == 0) {
+    // TODO: uncomment token check before production deployment
+    // String token = doc["token"].as<String>();
+    // if (token != otaToken) {
+    //   Serial.println("[OTA] ❌ Rejected — wrong token");
+    //   sendOTAStatus("error", 0, "Invalid OTA token");
+    //   return;
+    // }
+    // Serial.println("[OTA] ✅ Token OK — starting: " + url);
+    String url = doc["url"].as<String>();
+    Serial.println("[OTA] Starting (token check disabled): " + url);
+    performOTA(url);
+    return;
+  }
+
   if (strcmp(type, "request") != 0) {
-    return;  // Ignore non-request messages
+    return;  // Ignore other non-request messages
   }
 
   // Copy strings before doc goes out of scope in nested calls
@@ -1268,13 +1418,28 @@ void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
 // Load WiFi credentials and location from NVS into globals.
 // Called once at boot before the WiFi connection attempt.
 void loadCredentials() {
+  // Load WiFi / location
   prefs.begin("potato", true);  // read-only namespace
-  wifiSSID     = prefs.getString("ssid",  "");
-  wifiPassword = prefs.getString("pass",  "");
-  latitude     = prefs.getFloat ("lat",   48.9075f);
-  longitude    = prefs.getFloat ("lon",   2.3833f);
-  geoLocation  = prefs.getString("city",  "");
+  wifiSSID     = prefs.getString("ssid",      "");
+  wifiPassword = prefs.getString("pass",      "");
+  latitude     = prefs.getFloat ("lat",       48.9075f);
+  longitude    = prefs.getFloat ("lon",       2.3833f);
+  geoLocation  = prefs.getString("city",      "");
+  otaToken     = prefs.getString("ota_token", "");
   prefs.end();
+
+  // Generate OTA token on very first boot (hardware RNG, stored permanently)
+  if (otaToken.length() == 0) {
+    char buf[17];
+    snprintf(buf, sizeof(buf), "%08X%08X", esp_random(), esp_random());
+    otaToken = String(buf);
+    prefs.begin("potato", false);
+    prefs.putString("ota_token", otaToken);
+    prefs.end();
+    Serial.println("[OTA] Generated new token: " + otaToken);
+  }
+
+  Serial.println("[OTA] Token: " + otaToken);  // show at every boot for convenience
 
   if (wifiSSID.length() > 0) {
     Serial.println("[NVS] Loaded — SSID: " + wifiSSID +
@@ -1676,12 +1841,19 @@ void loop() {
   }
 
   // Handle capacitive touch for weather display
-  static unsigned long lastTouchTime = 0;
+  // Debounce: signal must stay HIGH for 50 ms before triggering.
+  // After trigger, 10 s cooldown to prevent repeated firing.
+  static unsigned long lastTouchTime  = 0;
+  static unsigned long touchHighStart = 0;
   unsigned long currentTime = millis();
 
   if (digitalRead(CAP_SENSOR_PIN) == HIGH) {
-    if (!animationActive && (currentTime - lastTouchTime > 10000)) {
+    if (touchHighStart == 0) touchHighStart = currentTime;
+    if (!animationActive &&
+        (currentTime - lastTouchTime  > 10000) &&
+        (currentTime - touchHighStart >= 50)) {
       Serial.println("Capacitive touch detected!");
+      touchHighStart = 0;
 
       if (WiFi.status() == WL_CONNECTED) {
         getWeatherForecast(weatherSymbol, currentTemperature);
@@ -1712,6 +1884,8 @@ void loop() {
 
       lastTouchTime = currentTime;
     }
+  } else {
+    touchHighStart = 0; // reset if signal drops below threshold
   }
 
   // Continue animation if active (skip while factory-reset indicator is running)
@@ -1798,16 +1972,19 @@ static uint32_t lerpColor(int r1, int g1, int b1, int r2, int g2, int b2, float 
   );
 }
 
-// Map temperature (–10..40°C) to a NeoPixel color
-// blue → cyan → green → yellow-green → orange → red
+// Map temperature to a NeoPixel color
+// ≤-10: blue | -10→0: blue→cyan | 0→10: cyan→green | 10→15: green→green-yellow
+// 15→20: green-yellow→yellow-orange | 20→25: yellow-orange→orange-red | 25→30: orange-red→red
+// Blinking blue overlay applied at ≤-20 in setLEDRGB(). Fire overlay applied at >35.
 uint32_t getTemperatureColor(int temperature) {
-  int t = constrain(temperature, -10, 40);
+  int t = constrain(temperature, -20, 30);
   if (t <= -10) return strip.Color(0, 0, 255);
   if (t <= 0)   return lerpColor(  0,   0, 255,   0, 200, 255, (t + 10) / 10.0f);
-  if (t <= 10)  return lerpColor(  0, 200, 255,   0, 255,  80,  t        / 10.0f);
-  if (t <= 20)  return lerpColor(  0, 255,  80, 200, 255,   0, (t - 10) / 10.0f);
-  if (t <= 30)  return lerpColor(200, 255,   0, 255, 120,   0, (t - 20) / 10.0f);
-                return lerpColor(255, 120,   0, 255,   0,   0, (t - 30) / 10.0f);
+  if (t <= 10)  return lerpColor(  0, 200, 255,   0, 255,   0,  t        / 10.0f);
+  if (t <= 15)  return lerpColor(  0, 255,   0, 150, 255,   0, (t - 10) /  5.0f);
+  if (t <= 20)  return lerpColor(150, 255,   0, 255, 160,   0, (t - 15) /  5.0f);
+  if (t <= 25)  return lerpColor(255, 160,   0, 255,  60,   0, (t - 20) /  5.0f);
+                return lerpColor(255,  60,   0, 255,   0,   0, (t - 25) /  5.0f);
 }
 
 void setLEDRGB(int temperature) {
@@ -1862,6 +2039,7 @@ void setLEDRGB(int temperature) {
   bool isSnow     = (ledWeatherEffect == "snow"        || ledWeatherEffect == "snow_shower");
   bool isThunder  = (ledWeatherEffect == "thunderstorm");
   bool isHeatwave = (temperature > 35);
+  bool isFreeze   = (temperature <= -20);
 
   // ── Thunder flash override ────────────────────────────────────────────────
   if (isThunder) {
@@ -1936,6 +2114,21 @@ void setLEDRGB(int temperature) {
   if (isHeatwave && random(100) < 40) {
     int led = random(NUM_LEDS);
     strip.setPixelColor(led, strip.Color(255, random(40, 110), 0));
+  }
+
+  // ── Freeze blink (<= -20°C): pulse blue on/dim every 400 ms ──────────────
+  if (isFreeze) {
+    bool blinkOn = ((now / 400) % 2 == 0);
+    if (!blinkOn) {
+      for (int i = 0; i < NUM_LEDS; i++) {
+        uint32_t c = strip.getPixelColor(i);
+        strip.setPixelColor(i, strip.Color(
+          ((c >> 16) & 0xFF) / 5,
+          ((c >>  8) & 0xFF) / 5,
+          ( c        & 0xFF) / 5
+        ));
+      }
+    }
   }
 
   strip.show();

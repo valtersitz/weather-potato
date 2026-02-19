@@ -135,14 +135,6 @@ export const WelcomeScreen = ({ onStart, deviceId, isDiscovering = false, device
         </div>
         )}
 
-        {!capabilities.bluetooth && !deviceOffline && (
-          <div className="mt-6 p-4 bg-warning/20 rounded-xl">
-            <p className="text-sm text-gray-700">
-              ⚠️ {t('ble.notSupportedDesc')}
-            </p>
-          </div>
-        )}
-
         {isInstalled && (
           <div className="mt-6 p-4 bg-success/20 rounded-xl">
             <p className="text-sm text-gray-700">

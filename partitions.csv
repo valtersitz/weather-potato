@@ -1,0 +1,14 @@
+# Weather Potato custom partition table — 4 MB flash
+#
+# Slot math (4 MB = 0x400000):
+#   overhead (bootloader/nvs/otadata up to 0x10000): 64 KB
+#   app0:   0x1E0000 = 1,966,080 bytes = 1.875 MB  (current firmware ~1.77 MB + 105 KB margin)
+#   app1:   0x1E0000 = 1,966,080 bytes = 1.875 MB
+#   spiffs: 0x030000 =   196,608 bytes =   192 KB  (configs; music needs I2S+SD card anyway)
+#
+# Name,   Type, SubType, Offset,   Size,
+nvs,      data, nvs,     0x9000,   0x5000,
+otadata,  data, ota,     0xe000,   0x2000,
+app0,     app,  ota_0,   0x10000,  0x1E0000,
+app1,     app,  ota_1,   0x1F0000, 0x1E0000,
+spiffs,   data, spiffs,  0x3D0000, 0x030000,

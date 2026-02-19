@@ -28,7 +28,8 @@ export const APConnectionScreen = ({
     try {
       await navigator.clipboard.writeText(AP_PASSWORD);
       setPasswordCopied(true);
-      setTimeout(() => setPasswordCopied(false), 3000);
+      // Keep "Go to Config Page" state for 10 s — gives time to switch to WiFi settings
+      setTimeout(() => setPasswordCopied(false), 10000);
     } catch (err) {
       console.log('[AP] Clipboard not supported, user must type password');
     }
@@ -138,13 +139,26 @@ export const APConnectionScreen = ({
             className="w-full"
             variant={passwordCopied ? 'accent' : 'primary'}
           >
-            {passwordCopied ? '🌐 Open Setup Page Now' : '📋 Copy Password'}
+            {passwordCopied ? '🌐 Go to Config Page' : '📋 Copy Password'}
           </Button>
 
           <p className="text-xs text-gray-500 mt-2 text-center">
             Password: <span className="font-mono">{AP_PASSWORD}</span>
           </p>
         </div>
+
+        {/* Instruction banner shown after password is copied */}
+        {passwordCopied && (
+          <div className="mb-4 p-4 bg-primary/10 border-2 border-primary/40 rounded-xl">
+            <p className="font-semibold text-gray-800 mb-2">📱 Now in your phone's WiFi settings:</p>
+            <ol className="text-sm text-gray-700 space-y-1 list-decimal list-inside">
+              <li>Open <strong>WiFi Settings</strong> on your phone</li>
+              <li>Select <strong className="font-mono">{AP_SSID}</strong></li>
+              <li>Paste the password and connect</li>
+              <li>Come back here and tap <strong>Go to Config Page</strong></li>
+            </ol>
+          </div>
+        )}
 
         {/* Connection status */}
         <div className={`mb-4 p-3 rounded-xl text-center ${
